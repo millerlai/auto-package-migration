@@ -167,9 +167,46 @@ git commit -m "upgrade package to version"
 
 ---
 
+## 🎫 Jira 觸發 (可選)
+
+### 觸發方式
+
+```
+# 完整 URL
+https://trendmicro.atlassian.net/browse/V1E-148968
+
+# 純 issue key (前提:已設過 default site)
+V1E-148968
+```
+
+### 流程
+
+| Phase | 行為 |
+|-------|------|
+| 1.C | 解析 URL/key → 用 MCP 抓 ticket → 解析 package/版本 → 確認 ✋ |
+| 2-6 | 標準升級流程 |
+| 7.5 | Post 遷移報告 comment 回 ticket (確認後) ✋ |
+| 7.6 | 詢問是否將 status 轉為 Done (確認後) ✋ |
+
+### MCP 不可用時
+
+Skill 會詢問是否改用 REST API + token:
+- Token 取得: <https://id.atlassian.com/manage-profile/security/api-tokens>
+- ⚠️ Token 會出現在對話 transcript 中
+- 完成後到 Atlassian 後台 revoke
+
+### Done 同義詞 match 順序
+
+`done` → `resolved` → `closed` → `completed` → `fixed`
+
+(workflow 名稱 case-insensitive 比對。多個 match 時取第一個並列出其他選項。)
+
+---
+
 ## 📚 詳細文件
 
 - **IMPORTANT_DEPENDENCY_UPDATE.md** - 完整說明與對比表
 - **pip_workflow.md** - Pip 詳細操作指南
 - **poetry_workflow.md** - Poetry 詳細操作指南
 - **uv_workflow.md** - UV 詳細操作指南
+- **jira_workflow.md** - Jira 整合詳細流程 (Phase 1.C, 7.5, 7.6)

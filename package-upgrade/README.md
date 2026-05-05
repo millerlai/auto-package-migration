@@ -41,6 +41,10 @@
      # https://cli.github.com/
      ```
 
+4. **Atlassian MCP** (可選, 啟用 Jira 整合)
+   - 只在你想用 Jira URL / Jira ID 觸發升級流程時需要
+   - 細節見下方「可選: Atlassian MCP 安裝」
+
 ### 安裝步驟
 
 #### 方法 1: 全域安裝 (推薦)
@@ -82,6 +86,58 @@ chmod +x .claude/skills/package-upgrade/scripts/*.py
 echo ".claude/skills/package-upgrade/" >> .gitignore
 ```
 
+### 可選: Atlassian MCP 安裝 (Jira 整合)
+
+啟用後,你可以用 Jira URL (例 `https://trendmicro.atlassian.net/browse/V1E-148968`)
+或 Jira ID (例 `V1E-148968`) 觸發升級流程,完成後自動將報告 comment 回 ticket
+並可選擇將 status 轉為 Done。
+
+#### 路徑 A: claude.ai connectors (推薦)
+
+最簡單的方式 — 你的環境多半已預裝。確認:
+
+```bash
+claude mcp list | grep -i atlassian
+```
+
+預期輸出:
+```
+claude.ai Atlassian Rovo: https://mcp.atlassian.com/v1/mcp - ✓ Connected
+```
+
+若顯示 `! Needs authentication` → 啟動 Claude Code 後執行 `/mcp` 登入即可,
+無需手動配置 token。
+
+#### 路徑 B: 自架 MCP + API token (適合 CI 或無 OAuth 的情境)
+
+```bash
+# 1. 取得 Atlassian API token
+# 開啟: https://id.atlassian.com/manage-profile/security/api-tokens
+# 點 "Create API token"
+
+# 2. 註冊 MCP server (token 會寫入 ~/.claude.json)
+claude mcp add atlassian \
+  --env ATLASSIAN_SITE=trendmicro.atlassian.net \
+  --env ATLASSIAN_EMAIL=you@example.com \
+  --env ATLASSIAN_API_TOKEN=<your_token> \
+  -- npx -y @modelcontextprotocol/server-atlassian
+
+# 3. 驗證
+claude mcp list | grep atlassian
+```
+
+⚠️ Token 會寫入 `~/.claude.json`,建議:
+- 使用最小權限的 token (僅讀寫所需 project)
+- 用完後到 Atlassian 後台 revoke
+
+#### 路徑 C: 不安裝 MCP, 用 REST API fallback
+
+Skill 內建 fallback — 若 MCP 不可用,會主動詢問你是否提供 API token,
+然後透過 `scripts/jira_fetch.py` / `jira_comment.py` / `jira_transition.py`
+直接呼叫 REST API。Token 只在當前 session 暫存,不寫入任何檔案。
+
+⚠️ 這個模式下,token 會出現在對話 transcript 中,慎用。
+
 ### 驗證安裝
 
 ```bash
@@ -116,6 +172,10 @@ claude
 修復 CVE-2024-35195
 
 檢查 flask 能不能升級到 3.0
+
+處理這張 Jira ticket: https://trendmicro.atlassian.net/browse/V1E-148968
+
+V1E-148968
 ```
 
 ### 使用範例
@@ -165,6 +225,26 @@ Claude Code:
    - 方案 C: 使用 pip --force-reinstall (風險高)
 4. 等待使用者選擇 → 使用者選 A
 5. (繼續升級流程)
+```
+
+#### 範例 4: 從 Jira ticket 觸發 (需 Atlassian MCP)
+
+```
+使用者: https://trendmicro.atlassian.net/browse/V1E-148968
+
+Claude Code:
+1. 用 Atlassian MCP 抓取 ticket 內容
+   ├── 若 401/403 → 詢問是否提供 API token (REST fallback)
+   └── 若 200 → 解析
+2. 從 summary/description 抽出: 套件 = requests, 目標版本 = 2.32.0
+3. 列出解析結果並等待確認 ✋
+4. (執行標準升級流程 Phase 2-7)
+5. 升級完成後:
+   ├── 確認後將遷移報告 comment 回 ticket ✋
+   └── 詢問是否將 ticket status 轉為 Done ✋
+        ├── [Y] → 自動 transition (CVE 修復用 resolution=Fixed,一般升級用 Done)
+        ├── [O] → 列出所有 transitions 讓你挑
+        └── [N] → 保持目前狀態
 ```
 
 ---
@@ -224,11 +304,14 @@ Claude Code:
 
 | 時間點 | 說明 |
 |--------|------|
+| **Jira ticket 解析** | 從 ticket 抽到的 package/版本/驗收條件,等你校正 (僅 Jira 觸發) |
 | **依賴衝突** | 如有多種解決方案，會列出風險評估並等待選擇 |
 | **程式碼修改** | 套用修改前會展示完整 diff 並等待確認 |
 | **建立分支** | 建立 Git branch 前會告知分支名稱 |
 | **測試程式修改** | 修改測試程式前會解釋原因並等待確認 |
 | **建立 PR** | 建立 Pull Request 前會展示 PR 內容 |
+| **Post Jira comment** | comment 預覽 + ticket URL,確認後才 post (僅 Jira 觸發) |
+| **Jira status 轉換** | 列出目前狀態 → 目標狀態,絕不自動執行 (僅 Jira 觸發) |
 
 你可以在任何確認點:
 - ✅ 同意繼續
