@@ -521,7 +521,11 @@ python scripts/ast_scanner.py <project_path> <package_name>
 
 **在修改任何專案內容之前，必須先建立新的 feature 分支。**
 
-分支命名規則:
+分支命名取決於觸發類型 — **若有 `jira_context`,issue key 一律放在最前面**,
+讓 git 端 (branch list / PR list / `git log --all`) 可以直接掃到 Jira ticket。
+
+#### 一般升級 (沒有 Jira / 沒有 CVE)
+
 ```bash
 git checkout -b feature/Update-{PackageName}-to-{TargetVersion}
 ```
@@ -532,11 +536,37 @@ git checkout -b feature/Update-requests-to-2.32.0
 git checkout -b feature/Update-django-to-5.1
 ```
 
-如果是修復 CVE:
+#### CVE 修復 (沒有 Jira)
+
 ```bash
 git checkout -b fix/CVE-{CVE-ID}-{PackageName}
 # 範例: git checkout -b fix/CVE-2024-35195-cryptography
 ```
+
+#### Jira 觸發 (Phase 1 情況 C)
+
+```bash
+# 一般升級
+git checkout -b feature/{ISSUE_KEY}-Update-{PackageName}-to-{TargetVersion}
+
+# CVE 修復 + Jira (兩者都有時, Jira 優先放最前面)
+git checkout -b fix/{ISSUE_KEY}-CVE-{CVE-ID}-{PackageName}
+```
+
+範例:
+```bash
+git checkout -b feature/V1E-148968-Update-requests-to-2.32.0
+git checkout -b fix/V1E-148968-CVE-2024-35195-cryptography
+```
+
+**為什麼 Jira ID 放最前面**:
+- `git branch --list 'feature/V1E-*'` 可以一次列出某個 epic / project 的所有分支
+- PR 列表頁排序後同一 ticket 的相關 branch 會聚在一起
+- 配合 Phase 7.2 commit 的 `[<issue_key>]` 前綴、Phase 7.3 PR title 的 `[<issue_key>]` 前綴,
+  branch / commit / PR 三層都能一眼追到 Jira ticket
+
+**字元限制**: 分支名只用 `[A-Za-z0-9._-]`,不要放空白或中文。
+若 `{PackageName}` 含特殊字元 (例 `python-dateutil`),保留原 `-` 即可。
 
 ### Step 5.2: 環境備份
 
