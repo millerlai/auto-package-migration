@@ -6,6 +6,18 @@
 
 **正確做法**: 必須同時更新兩者!
 
+> **例外: transitive (間接) dependency 的 lock-only 升級**
+>
+> 如果要升級的 pkg **不是** 專案直接引用、而是被某個 direct dep 拉進來的,
+> 且所有 parent 對它的版本約束都允許目標版本, 此時 **只更新 lock 檔案** 是正確的做法,
+> **不應該**把它加進 `pyproject.toml` / `requirements.txt`。
+>
+> 把 transitive pkg 加進宣告檔等同於「把間接依賴升級為直接依賴」,
+> 這會擴大 API surface、增加未來維護負擔, 通常不是想要的結果。
+>
+> 詳細決策邏輯見 SKILL.md Phase 2.2 Type B (B-1 ~ B-4) 與 Phase 5.3 「Transitive: lock-only 路徑」。
+> 以下章節描述的是 **direct dependency** 升級時兩個檔案要一起改的規則。
+
 ---
 
 ## 各套件管理工具的正確更新方式

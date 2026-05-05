@@ -228,17 +228,88 @@ python scripts/dep_tree.py <project_path> <package_name>
 
 #### Type B — 間接引用 (transitive)
 
-1. 找到所有直接引用此 pkg 的 parent packages
-2. 檢查 parent 的版本約束是否允許目標版本
-3. 若 parent 本身是直接引用 → 走 Type A 流程升級 parent
-4. 若無法透過升級 parent 解決 → 走衝突解決流程
+> **核心原則**: transitive dependency 不應該動依賴宣告檔 (`pyproject.toml` /
+> `requirements.txt`)。優先嘗試「只更新 lock 檔案」這條最小擾動路徑;
+> 只有在 parent 的版本約束擋住目標版本時,才升級 parent (而且必須先問使用者)。
+
+按以下順序判斷處理路徑,選定後在 Phase 5.3 對應執行:
+
+**B-1. 檢查是否有 lock 檔案** (從 Phase 0 的 `lockfile_path` / `pip_lock_file`)
+
+- ✅ 有 lock 檔案 → 進入 B-2
+- ❌ 無 lock 檔案 → transitive 升級沒有意義 (重新解析時還是會回到舊版本),
+  告知使用者並建議改為「升級直接依賴的 parent package」, 進入 B-4
+
+**B-2. 檢查所有 parent 的版本約束是否允許目標版本**
+
+對每個 parent package, 查 `version_constraints[parent]` 對此 transitive pkg 的約束:
+- 用 web search / `pip index versions` / 解析 PyPI metadata 確認 parent 對此 pkg
+  宣告的版本範圍 (如 `requests = ">=2.0,<3.0"`) 是否涵蓋 `target_version`
+
+- ✅ 全部 parent 都允許 → 進入 B-3 (lock-only 升級)
+- ❌ 至少一個 parent 鎖住版本不允許目標版本 → 進入 B-4 (詢問是否升級 parent)
+
+**B-3. Lock-only 升級路徑** (parent 約束允許, 不動宣告檔)
+
+報告給使用者並暫停確認:
+
+```
+{package} 是 transitive dependency, 由 {parent_list} 引用。
+所有 parent 的版本約束都允許目標版本 {target_version}。
+
+升級策略: 只更新 lock 檔案 ({lockfile_path}), 不動 pyproject.toml / requirements.txt。
+這是最小擾動的方式, parent 不變、宣告不變, 只刷新被鎖定的解析結果。
+
+繼續嗎?
+[Y] 是, 進入 Phase 3 並在 Phase 5.3 走 lock-only 路徑
+[N] 取消
+```
+
+使用者同意 → 在 session 中標記 `upgrade_strategy = "lock_only"`,
+Phase 5.3 走對應的 lock-only 命令 (見 Phase 5.3 的「Transitive: lock-only 路徑」)。
+
+**B-4. Parent 約束阻擋 → 詢問是否升級 parent**
+
+> 這是新增的關鍵分支: 不要自己決定升級 parent, 永遠先問。
+
+對每個阻擋的 parent, 收集以下資訊:
+- parent 目前版本
+- parent 對 target pkg 的約束 (例: `<2.0`)
+- parent 的最新版本 (web search / PyPI)
+- parent 的最新版本對 target pkg 的約束是否放寬
+
+報告並暫停:
+
+```
+無法直接升級 transitive package {package} 到 {target_version},
+因為以下 parent package 鎖定了 {package} 的版本:
+
+| Parent | 目前版本 | 對 {package} 的約束 | parent 最新版本 | 升級後是否允許 |
+|--------|---------|-------------------|---------------|-------------|
+| {parent_a} | {ver} | {constraint} | {latest} | ✅/❌ |
+| ...     |       |                  |             |        |
+
+請選擇:
+[1] 升級 parent package(s) 以放寬約束 (我會把每個 parent 當成新的升級目標跑一次完整流程)
+[2] 放棄升級 {package}, 結束此次任務
+[3] 我來決定 (告訴我具體要升哪些 parent / 跳過哪些)
+
+注意: 升級 parent 會修改宣告檔 (pyproject.toml / requirements.txt),
+影響範圍比 lock-only 大, 請確認後再繼續。
+```
+
+根據使用者選擇:
+- 選 [1] → 對每個阻擋的 parent 遞迴執行 Phase 2 (作為新的升級目標, dependency_type 通常是 direct)
+- 選 [2] → 紀錄到報告中、結束流程
+- 選 [3] → 等使用者列出 parent 清單, 對每個跑 Phase 2~6
 
 #### Type C — 直接 + 間接引用
 
 最複雜的情況。你需要:
 1. 先做 Type A 的 python 相容性檢查
-2. 再檢查所有 parent 的版本約束
-3. 如果有衝突 → 走衝突解決流程
+2. 再檢查所有 parent 的版本約束 (走 Type B 的 B-2 / B-4 邏輯)
+3. 因為 pkg 本身是直接依賴, 必須更新宣告檔, lock-only 路徑不適用
+4. 如果有 parent 約束衝突 → 走 Type B 的 B-4 詢問流程
 
 ### Step 2.3: 衝突解決 (如有衝突)
 
@@ -435,6 +506,55 @@ bash scripts/snapshot_env.sh <project_path> save
 ```
 
 ### Step 5.3: 更新依賴宣告檔
+
+**先決定走哪條路徑** (來自 Phase 2.2):
+
+- `upgrade_strategy == "lock_only"` (Type B, parent 約束允許)
+  → 走下方「Transitive: lock-only 路徑」, **不要動 pyproject.toml / requirements.txt**
+- 其他情況 (Type A 直接引用、Type C 直接+間接、Type B 升級 parent)
+  → 走下方「Direct: 同時更新宣告檔 + lock」
+
+---
+
+#### Transitive: lock-only 路徑
+
+> 目標: 只刷新 lock 檔案中該 transitive pkg 的版本, 不動依賴宣告檔。
+> 這條路徑只在 parent 的版本約束已經允許目標版本時才走。
+
+**For poetry**:
+```bash
+# 只更新 lock, pyproject.toml 不變
+poetry update <package>
+# 或更精準: 只重新解析這一個 pkg
+# poetry update --lock <package>   # 視 poetry 版本而定
+```
+
+**For uv (專案模式)**:
+```bash
+# 只升級 lock 中的特定 pkg, pyproject.toml 不動
+uv lock --upgrade-package <package>
+# 同步到環境 (不會修改 pyproject.toml)
+uv sync
+```
+
+**For pip (有 lock 檔案)**:
+
+依 lock 檔案類型:
+- pip-tools: `pip-compile --upgrade-package <package> requirements.in`
+  (注意: 不要編輯 requirements.in, 只升級指定 transitive pkg)
+- 自定義 lock (如 requirements.lock): 需要詢問使用者如何重新產生 lock,
+  常見方式 `pip install --upgrade <package>==<target_version> && pip freeze > <lock_file>`
+
+**驗證 lock-only 結果**:
+- ✅ 確認依賴宣告檔 (`pyproject.toml` / `requirements.txt` / `requirements.in`)
+  在 `git diff` 中**沒有變化**
+- ✅ 確認 lock 檔案中該 pkg 版本已更新到 target
+- 若宣告檔也被改到 → 還原宣告檔的變更 (`git checkout -- <file>`),
+  保留 lock 變更
+
+---
+
+#### Direct: 同時更新宣告檔 + lock
 
 **重要**: 必須同時更新依賴宣告檔和鎖定檔案,不能只更新鎖定檔案!
 
@@ -883,6 +1003,8 @@ bash scripts/snapshot_env.sh <project_path> restore
 | 時間點 | 你要提供的資訊 |
 |--------|-------------|
 | Phase 1.C.4: Jira ticket 解析結果 | 抽到的 package/版本/CVE/驗收條件,等使用者校正 |
+| Phase 2.2 B-3: Transitive lock-only 升級確認 | 套件是 transitive、parent 允許,僅更新 lock 不動宣告檔 |
+| Phase 2.2 B-4: Parent 阻擋升級的決策 | parent 約束擋住,問使用者升級 parent / 放棄 / 自選 |
 | Phase 2.3: 衝突解決方案 | 多種方案 + 風險評估 + 推薦 |
 | Phase 4.4: 程式碼修改預覽 | 完整 diff + 每處修改的理由 |
 | Phase 5.1: 建立 Git 分支 | 分支名稱、即將開始修改 |
