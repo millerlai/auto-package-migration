@@ -8,8 +8,9 @@ description: >
   並希望修復的場景，以及提供 Atlassian Jira ticket URL
   (如 https://trendmicro.atlassian.net/browse/V1E-148968) 或
   Jira issue key (如 V1E-148968) — 此時會自動讀取 ticket 內容、
-  分析應升級的套件、完成後將報告 comment 回 ticket，並可選擇將
-  status 轉為 Done。支援 pip、poetry、uv 三種套件管理工具，
+  分析應升級的套件、完成後將報告 comment 回 ticket，並依目前 ticket
+  狀態提議推進 (To Do → Ready for Work → Development → Done)。
+  支援 pip、poetry、uv 三種套件管理工具，
   自動偵測專案使用的工具。即使使用者只是隨口問「這個套件能不能升級」，
   也應觸發此 skill 來做完整分析。
 ---
@@ -30,7 +31,9 @@ description: >
 - 全程保持可回退
 - **若觸發來源是 Jira ticket** (Phase 1 情況 C)，在整個 session 中保留
   `jira_context = { site_host, cloud_id, issue_key, url }`，
-  完成後 (Phase 7.5/7.6) 將報告 comment 回 ticket、並在使用者同意下將 status 轉為 Done
+  完成後 (Phase 7.5/7.6) 將報告 comment 回 ticket、並依目前狀態
+  分階段提議轉換 (To Do → Ready for Work、Ready for Work → Development，
+  最後在使用者同意下才轉 Done)
 
 ---
 
@@ -1042,7 +1045,7 @@ ATLASSIAN_EMAIL=... ATLASSIAN_API_TOKEN=... \
 讓使用者決定是手動貼上還是放棄。**繼續到 7.6** (post 失敗不 block transition,但會在
 prompt 中如實告知)。
 
-### Step 7.6: 詢問是否將 Jira status 轉為 Done
+### Step 7.6: 依目前狀態推進 Jira ticket
 
 #### 7.6.1: 取得可用 transitions
 
@@ -1059,10 +1062,17 @@ mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue(
 python scripts/jira_transition.py list <site> <issue_key>
 ```
 
-#### 7.6.2: 找出「Done」對應的 transition
+#### 7.6.2: 依 `current_status` 決定目標 transition
 
-Jira workflow 是 project-specific,Done 狀態可能叫不同名字。
-依以下順序 (case-insensitive) match:
+依 ticket **目前狀態** (case-insensitive) 走以下分支:
+
+| 目前狀態 | 第一步 (預設推薦) | 第一步完成後 | 備註 |
+|----------|--------------------|--------------|------|
+| `To Do` / `Todo` / `Open` | `Ready for Work` | 接著 7.6.4 詢問是否再轉 `Done` | 兩段式:中間態 → Done |
+| `Ready for Work` | `Development` / `In Progress` | 接著 7.6.4 詢問是否再轉 `Done` | 兩段式:中間態 → Done |
+| 其他 (`Development` / `In Progress` / `Code Review` / ...) | match Done 同義詞 (見下) | — | 單段式,直接走原本 Done 流程 |
+
+**Done 同義詞 match 順序** (case-insensitive,比對 transition `name` 與 `to_status`):
 
 1. `done`
 2. `resolved`
@@ -1070,13 +1080,19 @@ Jira workflow 是 project-specific,Done 狀態可能叫不同名字。
 4. `completed`
 5. `fixed`
 
-若有多個 match → 取第一個並在 prompt 中列出其他選項。
-若都沒 match → 列出所有可用 transitions 讓使用者挑。
+**中間態 transition match**:
+- `Ready for Work`: 比對 transition `name` / `to_status` 為 `ready for work` (case-insensitive)
+- `Development`: 依序比對 `development`, `in development`, `in progress`,取第一個 match
 
-#### 7.6.3: 確認點 — 必須暫停詢問
+若任一階段找不到對應 transition → 列出所有可用 transitions 讓使用者挑,
+不要硬塞或猜測。
+
+#### 7.6.3: 第一段確認 — 中間態 transition
 
 > 永遠不要自動 transition,即使使用者 7.5 已同意 post comment。
 > 狀態變更可能觸發 release notes、SLA 計時、自動通知等下游效應。
+
+`current_status` 為 `To Do` 或 `Ready for Work` 時,先問中間態:
 
 ```
 升級已完成 ✅
@@ -1085,21 +1101,46 @@ Jira workflow 是 project-specific,Done 狀態可能叫不同名字。
 - PR: {pr_url}
 - Comment 已 post 到 Jira: {comment_url_if_available}
 
-是否將 Jira ticket {KEY} 從 `{current_status}` 轉為 `{matched_transition_name}`?
+目前 ticket {KEY} 狀態為 `{current_status}`。
+是否將狀態推進至 `{intermediate_target_name}`?
 
-[Y] 是, 轉為 {matched_transition_name}
+[Y] 是, 轉為 {intermediate_target_name}
+[O] 轉為其他狀態 (顯示完整 transition 清單)
+[N] 否, 保持 {current_status} (跳過後續 Done 詢問)
+```
+
+若使用者選 [N] → **不再問 Done**,直接進到 7.7。
+若使用者選 [Y] / [O] → 執行 transition (見 7.6.5),完成後進到 7.6.4。
+
+對於非 `To Do` / `Ready for Work` 的目前狀態,**跳過 7.6.3**,直接進入 7.6.4
+(套用單段式 Done 流程)。
+
+#### 7.6.4: 第二段確認 — 是否轉為 Done
+
+進到此步驟的兩種情境:
+- (a) 已完成 7.6.3 的中間態 transition (此時 `current_status` 已更新)
+- (b) 目前狀態本來就不是 `To Do` / `Ready for Work` (跳過 7.6.3)
+
+```
+是否再將 Jira ticket {KEY} 從 `{current_status}` 轉為 `{done_transition_name}`?
+
+[Y] 是, 轉為 {done_transition_name}
 [O] 轉為其他狀態 (顯示完整 transition 清單)
 [N] 否, 保持 {current_status}
 ```
 
-#### 7.6.4: 執行 transition
+若 Done 同義詞找不到 match (workflow 不允許從目前狀態直接到 Done) →
+列出可用 transitions 讓使用者選,或選 [N] 維持現狀。
 
-若使用者選 [Y] 或 [O]:
+#### 7.6.5: 執行 transition
 
-**處理 resolution field**:
+7.6.3 與 7.6.4 中使用者選 [Y] / [O] 時,共用此實作。
+
+**處理 resolution field** (僅在 transition 到 Done 類狀態時):
 - 升級類型若為 CVE 修復 → 預設 `resolution: "Fixed"`
 - 一般升級 → 預設 `resolution: "Done"`
 - 若 transition 不需要 resolution → 不設 fields
+- 中間態 transition (Ready for Work / Development) → 通常**不需要** resolution,不要設
 
 **MCP 模式**:
 ```
@@ -1107,7 +1148,7 @@ mcp__claude_ai_Atlassian_Rovo__transitionJiraIssue(
   cloudId=<cloud_id>,
   issueIdOrKey=<issue_key>,
   transition={"id": "<transition_id>"},
-  fields={"resolution": {"name": "Fixed"}}   # 視 workflow 而定
+  fields={"resolution": {"name": "Fixed"}}   # 視 workflow 而定,中間態通常不設
 )
 ```
 
@@ -1119,6 +1160,7 @@ python scripts/jira_transition.py apply <site> <issue_key> <transition_id> [reso
 若 transition 因 workflow 限制失敗 (例如必填欄位、permission):
 - 將錯誤訊息和該 ticket 的瀏覽器 URL 完整告訴使用者
 - 不重試,不繞過,讓使用者手動處理
+- 中間態若失敗 → **不要自動繼續**詢問 Done,先讓使用者排除問題
 
 ### Step 7.7: 完成
 
@@ -1161,4 +1203,5 @@ bash scripts/snapshot_env.sh <project_path> restore
 | Phase 6.4: 測試程式修改 | 為什麼要改 + 改後仍驗證什麼 |
 | Phase 7.3: 建立 Pull Request | PR 資訊、是否建立 PR |
 | Phase 7.5.2: 將報告 Comment 回 Jira | comment 預覽 + ticket URL |
-| Phase 7.6.3: 將 Jira status 轉為 Done | 目標狀態 + 目前狀態,絕不自動執行 |
+| Phase 7.6.3: Jira 中間態 transition (TODO→Ready for Work / Ready for Work→Development) | 目前狀態 + 中間目標,絕不自動執行 |
+| Phase 7.6.4: 是否將 Jira status 轉為 Done | 目標狀態 + 目前狀態,絕不自動執行 |

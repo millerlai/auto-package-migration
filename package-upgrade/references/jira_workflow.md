@@ -189,7 +189,38 @@ bash scripts/snapshot_env.sh {project_path} restore
 
 ## 5. Status Transitions (Phase 7.6)
 
-### 5.1 Done 同義詞 match 順序
+### 5.1 依目前狀態決定流程
+
+Phase 7.6 是「依 ticket 目前狀態」走不同路徑,而不是無條件問 Done:
+
+| `current_status` (case-insensitive) | 第一段 (7.6.3) | 第二段 (7.6.4) |
+|--------------------------------------|----------------|----------------|
+| `To Do` / `Todo` / `Open` | 推薦轉 `Ready for Work` | 完成後追問是否再轉 `Done` |
+| `Ready for Work` | 推薦轉 `Development` (或 `In Progress`) | 完成後追問是否再轉 `Done` |
+| 其他 (`Development` / `In Progress` / `Code Review` / ...) | (略過) | 直接走原本 Done 流程 |
+
+兩段都需要使用者明確同意 (`[Y]` / `[O]`)。第一段選 `[N]` 表示保留現狀 →
+**不再追問 Done**,直接進 7.7。
+
+### 5.2 中間態 transition match
+
+從 `getTransitionsForJiraIssue` 回傳清單中 (case-insensitive 比對 transition
+`name` 與 `to_status`):
+
+```python
+INTERMEDIATE_MATCHERS = {
+    "ready for work": ["ready for work"],
+    "development":    ["development", "in development", "in progress"],
+}
+```
+
+- `To Do` 狀態 → 用 `ready for work` 子清單比對
+- `Ready for Work` 狀態 → 用 `development` 子清單,取第一個 match
+
+若該 ticket 的 workflow 沒有對應 transition (例如直接從 To Do 跳 In Progress
+而沒有 Ready for Work),列出全部 transitions 讓使用者挑,不要硬塞。
+
+### 5.3 Done 同義詞 match 順序
 
 ```python
 DONE_SYNONYMS = ["done", "resolved", "closed", "completed", "fixed"]
@@ -206,7 +237,11 @@ DONE_SYNONYMS = ["done", "resolved", "closed", "completed", "fixed"]
 若清單中有多個 match (例如同時有 `Done` 和 `Resolved`),取第一個並在
 prompt 中列出其他選項讓使用者改選。
 
-### 5.2 Resolution field
+注意:從 `Ready for Work` / `Development` 直接跳 Done 通常需要中間經過
+`Code Review`。若 7.6.4 找不到 Done 同義詞 transition,代表 workflow
+不允許從目前狀態直跳 Done,要把可用 transitions 完整列出讓使用者決定。
+
+### 5.4 Resolution field
 
 某些 workflow 在 transition 到 Done 時要求 `resolution` 欄位。
 預設值規則:
@@ -215,12 +250,13 @@ prompt 中列出其他選項讓使用者改選。
 |----------|-----------------|
 | CVE 修復 (Phase 1 情況 B 或 ticket 含 CVE) | `Fixed` |
 | 一般 package upgrade | `Done` |
+| 中間態 (Ready for Work / Development) | 不設定 |
 | 不確定 / workflow 不需要 | 不設定 |
 
 若 transition 因 resolution 欄位缺失被拒 (HTTP 400 with field validation),
 從錯誤訊息抽出可用的 resolution 選項,告訴使用者並讓他選。
 
-### 5.3 失敗處理
+### 5.5 失敗處理
 
 任何 transition 失敗 (permission, validation, network) 都不要重試自動。
 告訴使用者:
@@ -231,6 +267,9 @@ prompt 中列出其他選項讓使用者改選。
 請手動在瀏覽器中操作:
 {url}
 ```
+
+中間態失敗時,**不要**自動繼續詢問 Done。先讓使用者排除問題,
+他可以選擇手動操作後告訴你目前狀態,再決定是否進到 7.6.4。
 
 ---
 
