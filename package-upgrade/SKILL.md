@@ -349,6 +349,16 @@ script 會嘗試以下來源並輸出原文:
 - GitHub Releases API
 - 常見路徑: CHANGELOG.md, CHANGES.rst, HISTORY.md
 
+**先抓 metadata header**: stdout 開頭有兩行 HTML comment:
+
+```
+<!-- changelog_source_label: ... -->
+<!-- changelog_source_url: ... -->
+```
+
+**在 session 中保留** `changelog_source = { label, url }` (若 `NOT_FOUND` → 記為 missing)。
+這要在 Phase 7.1 報告中明確列出, 不可省略。
+
 **你的分析任務:**
 
 拿到 changelog 原文後，你要:
@@ -377,7 +387,24 @@ script 會嘗試以下來源並輸出原文:
 bash scripts/git_diff.sh <git_repo_url> <current_version> <target_version>
 ```
 
-輸出: 兩個版本 tag 之間的 `*.py` diff
+輸出: stdout 開頭的 metadata header + 兩個版本 tag 之間的 `*.py` diff
+
+**先抓 metadata header**: stdout 前幾行是 HTML comment, 形如:
+
+```
+<!-- git_diff_repo_url: https://github.com/owner/repo -->
+<!-- git_diff_old_version: 2.28.0 -->
+<!-- git_diff_new_version: 2.32.0 -->
+<!-- git_diff_old_tag: v2.28.0 -->
+<!-- git_diff_new_tag: v2.32.0 -->
+<!-- git_diff_old_sha: <40-char SHA> -->
+<!-- git_diff_new_sha: <40-char SHA> -->
+<!-- git_diff_compare_url: https://github.com/owner/repo/compare/v2.28.0...v2.32.0 -->
+```
+
+**在 session 中保留** `git_diff_source = { repo_url, old_version, new_version,
+old_tag, new_tag, old_sha, new_sha, compare_url }`。Phase 7.1 報告必須引用這組數值
+(尤其是 old_sha / new_sha 和 compare_url), 不可只寫版本號就帶過。
 
 **你的分析任務:**
 
@@ -762,17 +789,41 @@ bash scripts/run_tests.sh <project_path> --all
    - 有幾個 breaking changes、影響了幾個檔案
    - 測試結果
 
-2. **依賴分析** — 引用類型、衝突處理
+2. **Breaking Change 分析來源** — **必填、必須具體**
 
-3. **Breaking Changes 詳情** — 每個變更的影響和解決方式
+   這個章節證明分析有根據, 不是憑空生成。格式:
 
-4. **程式碼修改清單** — 每個檔案改了什麼、為什麼
+   ```markdown
+   ### 📚 Changelog 來源
+   - 來源類型: {label, e.g. "GitHub Releases API" / "PyPI project_urls[Changelog]" / "Repo file (main/CHANGELOG.md)"}
+   - URL: {實際 URL, 從 `changelog_source.url` 取}
+   - 狀態: ✅ 找到 / ❌ 未找到 (若未找到, 說明已嘗試的所有來源)
 
-5. **測試結果** — 通過/失敗、是否修改了測試程式
+   ### 🔬 Git Diff 雙軌分析
+   - Repository: {git_diff_source.repo_url}
+   - 舊版本: `{old_version}` → tag `{old_tag}` → commit `{old_sha[:12]}` (完整 SHA: {old_sha})
+   - 新版本: `{new_version}` → tag `{new_tag}` → commit `{new_sha[:12]}` (完整 SHA: {new_sha})
+   - Compare URL: {compare_url}
+   - 涵蓋檔案: 僅 `*.py` (Python 原始碼差異)
+   ```
 
-6. **後續建議** — 還有哪些相關套件可能需要更新
+   - Changelog 找不到時, 不要省略此章節 — 改寫「狀態: ❌ 未找到」並列出已嘗試的來源,
+     讓 reviewer 知道分析只靠 Git Diff
+   - Git tag 找不到時, 把 `git tag --list` 的最近結果列在此節, 說明退而用何種替代 (例如最近的 release commit)
 
-7. **回退指南** — 如果需要回退，怎麼做
+3. **依賴分析** — 引用類型、衝突處理
+
+4. **Breaking Changes 詳情** — 每個變更的影響和解決方式
+   - 每個 BC 條目仍要標 `來源: Changelog ✅/❌ + Git Diff ✅/❌` (見 Phase 3.3)
+   - 有引用具體 commit 時用 `<short_sha>` 連到 `{repo_url}/commit/{sha}`
+
+5. **程式碼修改清單** — 每個檔案改了什麼、為什麼
+
+6. **測試結果** — 通過/失敗、是否修改了測試程式
+
+7. **後續建議** — 還有哪些相關套件可能需要更新
+
+8. **回退指南** — 如果需要回退，怎麼做
 
 ### Step 7.2: Git Commit Message
 

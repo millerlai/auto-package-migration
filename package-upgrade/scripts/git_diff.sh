@@ -59,5 +59,30 @@ fi
 echo "Comparing $OLD_TAG -> $NEW_TAG" >&2
 echo "Generating diff of Python files..." >&2
 
+# Resolve tags to full commit SHAs so the report can cite exact commits.
+OLD_SHA=$(git rev-parse "$OLD_TAG^{commit}")
+NEW_SHA=$(git rev-parse "$NEW_TAG^{commit}")
+
+# Build a human-friendly compare URL when the source repo is on GitHub.
+COMPARE_URL=""
+if [[ "$REPO_URL" =~ github\.com[:/]+([^/]+)/([^/\.]+) ]]; then
+    GH_OWNER="${BASH_REMATCH[1]}"
+    GH_REPO="${BASH_REMATCH[2]%.git}"
+    COMPARE_URL="https://github.com/${GH_OWNER}/${GH_REPO}/compare/${OLD_TAG}...${NEW_TAG}"
+fi
+
+# Machine-readable metadata header on stdout — the consuming LLM cites this in the report.
+echo "<!-- git_diff_repo_url: ${REPO_URL} -->"
+echo "<!-- git_diff_old_version: ${OLD_VER} -->"
+echo "<!-- git_diff_new_version: ${NEW_VER} -->"
+echo "<!-- git_diff_old_tag: ${OLD_TAG} -->"
+echo "<!-- git_diff_new_tag: ${NEW_TAG} -->"
+echo "<!-- git_diff_old_sha: ${OLD_SHA} -->"
+echo "<!-- git_diff_new_sha: ${NEW_SHA} -->"
+if [ -n "$COMPARE_URL" ]; then
+    echo "<!-- git_diff_compare_url: ${COMPARE_URL} -->"
+fi
+echo
+
 # Generate diff (only .py files)
 git diff "$OLD_TAG".."$NEW_TAG" -- "*.py" "**/*.py"
