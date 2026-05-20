@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
 # snapshot_env_js.sh - Save and restore JS project state.
 #
-# Usage: bash snapshot_env_js.sh <project_path> save|restore|clean
+# Usage: bash snapshot_env_js.sh <project_path> save|restore|clean|locate
 #
-# Only backs up package.json + lockfile(s). node_modules is intentionally
-# excluded: it can be gigabytes large and is fully reproducible from the
-# lockfile via `npm ci` / `pnpm install --frozen-lockfile` / etc.
+# Snapshots live OUTSIDE the repo at:
+#   ~/.cache/package-upgrade/<repo-hash>/<timestamp>/
+# This way snapshots are zero-pollution: never accidentally committed, never
+# interfere with `git clean -fdx`, and multiple snapshots coexist per repo.
+#
+# Only backs up package.json + lockfile(s) + relevant config (`.npmrc`,
+# `.yarnrc.yml`, etc). node_modules is intentionally excluded; restore
+# reinstalls via the package manager's frozen-lockfile mode.
 
 set -euo pipefail
 
 PROJECT_PATH="${1:-.}"
 ACTION="${2:-save}"
-SNAPSHOT_DIR="$PROJECT_PATH/.upgrade_snapshot_js"
+
+PROJECT_PATH=$(cd "$PROJECT_PATH" && pwd -P)
+
+# Stable repo hash so the same repo always maps to the same parent dir
+REPO_HASH=$(printf '%s' "$PROJECT_PATH" | shasum 2>/dev/null | awk '{print $1}' | cut -c1-12)
+[ -z "$REPO_HASH" ] && REPO_HASH=$(printf '%s' "$PROJECT_PATH" | md5 2>/dev/null | cut -c1-12)
+[ -z "$REPO_HASH" ] && REPO_HASH="unknown"
+
+CACHE_ROOT="${HOME}/.cache/package-upgrade/${REPO_HASH}"
+LATEST_LINK="${CACHE_ROOT}/latest"
 
 cd "$PROJECT_PATH" || exit 1
 
@@ -21,21 +35,22 @@ LOCK_PATTERNS=(
     "npm-shrinkwrap.json"
     "yarn.lock"
     "pnpm-lock.yaml"
+    "pnpm-workspace.yaml"
     "bun.lock"
     "bun.lockb"
     ".npmrc"
     ".yarnrc"
     ".yarnrc.yml"
-    "pnpm-workspace.yaml"
+    ".yarnrc.default.yml"
 )
 
 restore_command_hint() {
     case "$1" in
-        npm) echo "npm ci" ;;
-        yarn) echo "yarn install --frozen-lockfile" ;;
+        npm)  echo "npm ci" ;;
+        yarn) echo "yarn install --immutable" ;;
         pnpm) echo "pnpm install --frozen-lockfile" ;;
-        bun) echo "bun install --frozen-lockfile" ;;
-        *) echo "<run your package manager install command>" ;;
+        bun)  echo "bun install --frozen-lockfile" ;;
+        *)    echo "<run your package manager install command>" ;;
     esac
 }
 
@@ -50,11 +65,16 @@ detect_pm() {
 
 case "$ACTION" in
     save)
-        echo "Creating JS environment snapshot..." >&2
+        TIMESTAMP=$(date +%Y%m%dT%H%M%S)
+        SNAPSHOT_DIR="${CACHE_ROOT}/${TIMESTAMP}"
         mkdir -p "$SNAPSHOT_DIR"
+
+        echo "Creating JS environment snapshot..." >&2
+        echo "  Location: $SNAPSHOT_DIR" >&2
 
         for pattern in "${LOCK_PATTERNS[@]}"; do
             if [ -f "$pattern" ]; then
+                # Preserve subdirectory structure (only matters for workspaces but cheap)
                 cp "$pattern" "$SNAPSHOT_DIR/" 2>/dev/null || true
                 echo "  Backed up: $pattern" >&2
             fi
@@ -64,24 +84,40 @@ case "$ACTION" in
         cat > "$SNAPSHOT_DIR/manifest.txt" <<EOF
 Snapshot created: $(date)
 Project path:     $PROJECT_PATH
+Repo hash:        $REPO_HASH
 Package manager:  $PM
 Restore command:  $(restore_command_hint "$PM")
 Files backed up:
 $(ls -1 "$SNAPSHOT_DIR" 2>/dev/null | grep -v manifest.txt || echo "  (none)")
 EOF
+
+        # Update "latest" symlink for easy restore
+        ln -snf "$SNAPSHOT_DIR" "$LATEST_LINK" 2>/dev/null || true
+
         echo "✓ Snapshot saved to $SNAPSHOT_DIR" >&2
         echo "  node_modules is NOT backed up — restore reinstalls from lockfile." >&2
-        echo "{\"status\": \"success\", \"snapshot_dir\": \"$SNAPSHOT_DIR\", \"pkg_manager\": \"$PM\"}"
+        printf '{"status": "success", "snapshot_dir": "%s", "pkg_manager": "%s"}\n' \
+            "$SNAPSHOT_DIR" "$PM"
         ;;
 
     restore)
-        if [ ! -d "$SNAPSHOT_DIR" ]; then
-            echo "ERROR: No snapshot found at $SNAPSHOT_DIR" >&2
-            echo '{"status": "error", "message": "No snapshot found"}'
+        SNAPSHOT_DIR=""
+        if [ -L "$LATEST_LINK" ] && [ -d "$LATEST_LINK" ]; then
+            SNAPSHOT_DIR=$(readlink "$LATEST_LINK")
+            # readlink may return relative; resolve
+            [ "${SNAPSHOT_DIR#/}" = "$SNAPSHOT_DIR" ] && SNAPSHOT_DIR="${CACHE_ROOT}/${SNAPSHOT_DIR}"
+        elif [ -d "$CACHE_ROOT" ]; then
+            # Fallback: pick the lexicographically latest timestamp dir
+            SNAPSHOT_DIR=$(ls -1d "$CACHE_ROOT"/*/ 2>/dev/null | grep -v '/latest/$' | sort | tail -1 | sed 's:/$::')
+        fi
+
+        if [ -z "$SNAPSHOT_DIR" ] || [ ! -d "$SNAPSHOT_DIR" ]; then
+            echo "ERROR: No snapshot found under $CACHE_ROOT" >&2
+            printf '{"status": "error", "message": "No snapshot found", "cache_root": "%s"}\n' "$CACHE_ROOT"
             exit 1
         fi
 
-        echo "Restoring JS environment from snapshot..." >&2
+        echo "Restoring JS environment from $SNAPSHOT_DIR..." >&2
         for file in "$SNAPSHOT_DIR"/*; do
             fname=$(basename "$file")
             [ "$fname" = "manifest.txt" ] && continue
@@ -92,23 +128,31 @@ EOF
         PM=$(detect_pm ".")
         echo "  Reinstall manually (we don't run install automatically to avoid lifecycle scripts):" >&2
         echo "    $(restore_command_hint "$PM")" >&2
-        echo "{\"status\": \"success\", \"restored_from\": \"$SNAPSHOT_DIR\", \"pkg_manager\": \"$PM\", \"reinstall_hint\": \"$(restore_command_hint "$PM")\"}"
+        printf '{"status": "success", "restored_from": "%s", "pkg_manager": "%s", "reinstall_hint": "%s"}\n' \
+            "$SNAPSHOT_DIR" "$PM" "$(restore_command_hint "$PM")"
         ;;
 
     clean)
-        if [ -d "$SNAPSHOT_DIR" ]; then
-            rm -rf "$SNAPSHOT_DIR"
-            echo "✓ JS snapshot cleaned" >&2
-            echo '{"status": "success", "action": "cleaned"}'
+        if [ -d "$CACHE_ROOT" ]; then
+            rm -rf "$CACHE_ROOT"
+            echo "✓ Cache cleaned: $CACHE_ROOT" >&2
+            printf '{"status": "success", "action": "cleaned", "cache_root": "%s"}\n' "$CACHE_ROOT"
         else
-            echo "No JS snapshot to clean" >&2
-            echo '{"status": "success", "action": "none"}'
+            echo "No cache to clean at $CACHE_ROOT" >&2
+            printf '{"status": "success", "action": "none"}\n'
         fi
         ;;
 
+    locate)
+        # Inform caller where snapshots live (useful for the LLM to mention in Phase 5)
+        printf '{"cache_root": "%s", "latest": "%s"}\n' \
+            "$CACHE_ROOT" \
+            "$(readlink "$LATEST_LINK" 2>/dev/null || echo "")"
+        ;;
+
     *)
-        echo "Usage: bash snapshot_env_js.sh <project_path> save|restore|clean" >&2
-        echo '{"status": "error", "message": "Invalid action"}'
+        echo "Usage: bash snapshot_env_js.sh <project_path> save|restore|clean|locate" >&2
+        printf '{"status": "error", "message": "Invalid action"}\n'
         exit 1
         ;;
 esac

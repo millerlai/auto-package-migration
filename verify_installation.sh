@@ -100,6 +100,9 @@ SCRIPTS=(
     "git_diff_js.sh"
     "run_tests_js.sh"
     "snapshot_env_js.sh"
+    "preflight.sh"
+    "parse_pm_errors.py"
+    "validate_lockfile.sh"
 )
 
 for script in "${SCRIPTS[@]}"; do
@@ -144,8 +147,11 @@ REFS=(
     "breaking_change_patterns.md"
     "js_workflow.md"
     "npm_workflow.md"
+    "yarn_workflow.md"
     "js_ast_strategy.md"
     "breaking_change_patterns_js.md"
+    "auth_tokens.md"
+    "bdsa_mapping.md"
 )
 
 for ref in "${REFS[@]}"; do
@@ -260,10 +266,24 @@ if command -v node &> /dev/null && [ -d "$SKILL_DIR/scripts/node_modules" ]; the
     else
         check_warn "detect_env_js.sh 執行異常"
     fi
+    # preflight.sh returns non-zero when blockers exist (which is expected
+    # for our minimal fixture). Just verify it emits valid JSON regardless.
+    PF_OUT=$(bash "$SKILL_DIR/scripts/preflight.sh" "$JS_TMP" --json 2>/dev/null || true)
+    if echo "$PF_OUT" | jq -e '.summary' >/dev/null 2>&1; then
+        check_pass "preflight.sh 可正常執行"
+    else
+        check_warn "preflight.sh 執行異常"
+    fi
     if node "$SKILL_DIR/scripts/ast_scanner_js.js" "$JS_TMP" axios 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
         check_pass "ast_scanner_js.js 可載入 @babel/parser 並執行"
     else
         check_warn "ast_scanner_js.js 執行異常 — 確認 cd $SKILL_DIR/scripts && npm install 已成功"
+    fi
+    # parse_pm_errors.py runs without external deps
+    if echo "YN0041: Invalid authentication" | python3 "$SKILL_DIR/scripts/parse_pm_errors.py" 2>/dev/null | jq -e '.primary_blocker == "auth"' >/dev/null 2>&1; then
+        check_pass "parse_pm_errors.py 可正常執行"
+    else
+        check_warn "parse_pm_errors.py 執行異常"
     fi
     rm -rf "$JS_TMP"
 fi

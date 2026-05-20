@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-"""Fetch changelog for a Python package.
+"""Fetch changelog for a package (Python or JavaScript).
 
-Usage: python fetch_changelog.py <package_name> <git_repo_url>
+Usage: python fetch_changelog.py <package_name> <git_repo_url> [<old_version> <new_version>]
 Output: Raw changelog text to stdout, prefixed with HTML-comment metadata
         headers (changelog_source_label, changelog_source_url) so the consuming
         LLM can cite the exact source in the migration report.
+
+Fallback chain (each step tries the next on failure):
+  1. PyPI metadata `project_urls.Changelog`
+  2. GitHub Releases API
+  3. Common changelog file paths in the repo (CHANGELOG.md / CHANGES.rst / ...)
+  4. (if old/new versions given) GitHub Compare API — commit messages between tags
+  5. (if old/new versions given) GitHub tag annotation messages
+
+Steps 4 and 5 require the optional old/new version arguments. They are
+particularly useful for packages that don't publish formal release notes
+(common for small npm libs).
 """
 
 from __future__ import annotations
@@ -148,43 +159,155 @@ def fetch_from_common_files(repo_url: str) -> Optional[tuple[str, str, str]]:
         return None
 
 
+def _resolve_tag(owner: str, repo: str, version: str) -> Optional[str]:
+    """Try common tag patterns and return the first that resolves on GitHub."""
+    candidates = [f"v{version}", version, f"release-{version}", f"release/{version}"]
+    for tag in candidates:
+        url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/tags/{tag}"
+        try:
+            r = requests.get(url, timeout=10)
+            if r.status_code == 200:
+                return tag
+        except requests.RequestException:
+            continue
+    return None
+
+
+def fetch_from_github_compare(repo_url: str, old_version: str, new_version: str) -> Optional[tuple[str, str, str]]:
+    """Fallback: list commits between two version tags using the GitHub Compare API.
+
+    Useful for packages that ship git tags but no GitHub Releases (common for
+    libs maintained by individuals).
+    """
+    try:
+        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        if not match:
+            return None
+        owner, repo = match.groups()
+
+        old_tag = _resolve_tag(owner, repo, old_version)
+        new_tag = _resolve_tag(owner, repo, new_version)
+        if not old_tag or not new_tag:
+            return None
+
+        api_url = f"https://api.github.com/repos/{owner}/{repo}/compare/{old_tag}...{new_tag}"
+        human_url = f"https://github.com/{owner}/{repo}/compare/{old_tag}...{new_tag}"
+        r = requests.get(api_url, timeout=15)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+
+        commits = data.get("commits", [])
+        if not commits:
+            return None
+
+        lines = [
+            f"# Commit log from GitHub Compare ({human_url})\n",
+            f"# {len(commits)} commits between {old_tag} and {new_tag}\n",
+        ]
+        for c in commits[:300]:  # cap to avoid huge outputs
+            sha = (c.get("sha") or "")[:12]
+            msg = c.get("commit", {}).get("message", "").split("\n")[0]
+            author = c.get("commit", {}).get("author", {}).get("name", "")
+            lines.append(f"- {sha} ({author}): {msg}")
+
+        return ("GitHub Compare API", human_url, "\n".join(lines))
+    except (requests.RequestException, KeyError, ValueError):
+        return None
+
+
+def fetch_from_github_tag_annotation(repo_url: str, version: str) -> Optional[tuple[str, str, str]]:
+    """Fallback: read the annotated message of a single git tag.
+
+    Some maintainers put release notes only in `git tag -a v1.2.3 -m '...'`.
+    """
+    try:
+        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        if not match:
+            return None
+        owner, repo = match.groups()
+
+        tag = _resolve_tag(owner, repo, version)
+        if not tag:
+            return None
+        # Resolve the ref to the tag object SHA, then fetch the tag object
+        ref_url = f"https://api.github.com/repos/{owner}/{repo}/git/refs/tags/{tag}"
+        r = requests.get(ref_url, timeout=10)
+        if r.status_code != 200:
+            return None
+        obj = r.json().get("object", {})
+        if obj.get("type") != "tag":
+            return None  # lightweight tag, no annotation
+        tag_url = obj.get("url")
+        if not tag_url:
+            return None
+        r = requests.get(tag_url, timeout=10)
+        if r.status_code != 200:
+            return None
+        tag_obj = r.json()
+        message = tag_obj.get("message", "").strip()
+        if not message:
+            return None
+
+        human_url = f"https://github.com/{owner}/{repo}/releases/tag/{tag}"
+        content = f"# Annotated tag {tag}\n\n{message}\n"
+        return ("GitHub tag annotation", human_url, content)
+    except (requests.RequestException, KeyError, ValueError):
+        return None
+
+
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python fetch_changelog.py <package_name> <git_repo_url>", file=sys.stderr)
+        print("Usage: python fetch_changelog.py <package_name> <git_repo_url> [<old_version> <new_version>]", file=sys.stderr)
         sys.exit(1)
 
     package_name = sys.argv[1]
     git_repo_url = sys.argv[2]
+    old_version = sys.argv[3] if len(sys.argv) > 4 else None
+    new_version = sys.argv[4] if len(sys.argv) > 4 else None
 
-    # Try different sources in order; each returns (label, url, content) or None
     result = None
+    attempted = []
 
     print("# Attempting to fetch changelog...\n", file=sys.stderr)
     print("Trying PyPI metadata...", file=sys.stderr)
+    attempted.append("PyPI project_urls.Changelog")
     result = fetch_from_pypi(package_name)
 
     if not result:
         print("Trying GitHub Releases API...", file=sys.stderr)
+        attempted.append("GitHub Releases API")
         result = fetch_from_github_releases(git_repo_url)
 
     if not result:
         print("Trying common changelog files...", file=sys.stderr)
+        attempted.append("Repo file (CHANGELOG.md / CHANGES.rst / HISTORY.md / ...)")
         result = fetch_from_common_files(git_repo_url)
+
+    if not result and old_version and new_version:
+        print(f"Trying GitHub Compare API ({old_version}...{new_version})...", file=sys.stderr)
+        attempted.append("GitHub Compare API")
+        result = fetch_from_github_compare(git_repo_url, old_version, new_version)
+
+    if not result and new_version:
+        print(f"Trying GitHub tag annotation (v{new_version})...", file=sys.stderr)
+        attempted.append("GitHub tag annotation")
+        result = fetch_from_github_tag_annotation(git_repo_url, new_version)
 
     if result:
         source_label, source_url, content = result
         print(f"\nChangelog found from: {source_label} ({source_url})\n", file=sys.stderr)
-        # Machine-readable header on stdout so the consuming LLM can cite the source.
         print(f"<!-- changelog_source_label: {source_label} -->")
         print(f"<!-- changelog_source_url: {source_url} -->")
         print()
         print(content)
     else:
         print("\nNo changelog found from any source.", file=sys.stderr)
+        print(f"Attempted: {', '.join(attempted)}", file=sys.stderr)
         print("You may need to manually search for breaking changes.", file=sys.stderr)
-        # Still emit the machine-readable header so downstream knows it's missing.
         print("<!-- changelog_source_label: NOT_FOUND -->")
         print("<!-- changelog_source_url: NOT_FOUND -->")
+        print(f"<!-- changelog_attempts: {' | '.join(attempted)} -->")
         sys.exit(1)
 
 

@@ -56,11 +56,26 @@ COMMON_ALLOW = [
     "Bash(npm audit:*)",
     "Bash(npx --no-install:*)",
     "Bash(npx --yes:*)",
+    # yarn (incl. yarn 3 Berry via .yarn/releases)
+    "Bash(yarn:*)",
+    "Bash(corepack:*)",
+    # pnpm
+    "Bash(pnpm:*)",
+    # bun
+    "Bash(bun install:*)",
+    "Bash(bun pm:*)",
+    "Bash(bun outdated:*)",
+    # --- GitHub CLI (PR creation, auth status checks for GHE) ---
+    "Bash(gh auth status:*)",
+    "Bash(gh pr create:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh api:*)",
     # --- Shared utilities ---
     "Bash(grep:*)",
     "Bash(docker ps:*)",
     "Bash(command -v *)",
     "Bash(tar -xzf:*)",
+    "Bash(shasum:*)",
     # --- Web fetches ---
     "WebFetch(domain:pypi.org)",
     "WebFetch(domain:registry.npmjs.org)",
@@ -68,6 +83,11 @@ COMMON_ALLOW = [
     "WebFetch(domain:github.com)",
     "WebFetch(domain:raw.githubusercontent.com)",
     "WebFetch(domain:api.github.com)",
+    # OSV API + BlackDuck (internal) for vulnerability lookups
+    "WebFetch(domain:api.osv.dev)",
+    "WebFetch(domain:osv.dev)",
+    "WebFetch(domain:nvd.nist.gov)",
+    "WebFetch(domain:blackduck.trendmicro.com)",
     "WebSearch",
     "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
     "mcp__claude_ai_Atlassian_Rovo__getTransitionsForJiraIssue",
