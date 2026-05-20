@@ -117,9 +117,10 @@ bash scripts/detect_env_js.sh <project_path>
 bash scripts/preflight.sh <project_path>
 ```
 
-腳本會檢查：
+腳本會自動 **source `<project>/.env.jfrog` / `.env.npm` / `.env.github`**（若存在），
+所以前一次 session 持久化的 token 不需要重新提供。接著檢查：
 1. `pkg_manager_bin` 是否可呼叫（yarn 3 是 `.yarn/releases/yarn-*.cjs` ⇒ corepack）
-2. `env_var_placeholders` 中每個變數是否已 `export`（缺哪個就列出 token 取得 URL，見 `references/auth_tokens.md`）
+2. `env_var_placeholders` 中每個變數是否已設定（含 source `.env.*` 後）
 3. `gh` CLI 對 `git_remote_host` 是否已認證（內部 GHE 也要檢查）
 4. git working tree 是否乾淨（防 WIP 被混進升級分支）
 5. `node_modules/` 是否存在（決定 dep_tree 走 lockfile-first 或 `npm ls`）
@@ -134,6 +135,42 @@ bash scripts/preflight.sh <project_path>
     缺 gh → 印 PR URL 讓使用者手動建立)
 [3] 中止
 ```
+
+### Step 0.3.1: Token-acquisition 互動（缺 JFROG_TOKEN 等 token blocker 時）
+
+對 `env_*_missing` 類 blocker，**逐字**用 `references/auth_tokens.md` 指定的詢問
+範本（IMPROVEMENTS feedback 要求的措辭），別自己換句話說。範例（JFROG_TOKEN）：
+
+```
+🔑 取得 token:
+  go to https://jfrog.trendmicro.com/ui/admin/artifactory/user_profile.
+  In the next step, click "Generate Identity Token" to generate a token
+  that will be used as part of CURL.
+```
+
+**使用者提供 token 後的儲存規則**（必跑 `scripts/save_token.sh`）：
+
+1. 先 `export <ENV_VAR>=<value>` 進當前 session（讓 Phase 5 命令可用）
+2. 呼叫 `bash scripts/save_token.sh <project_path> .env.<service> <KEY> "<value>"`：
+   - 檔案不存在 → 直接創建（`{"status":"created"}`）
+   - 檔案存在但無同名 key → 直接追加（`{"status":"appended"}`）
+   - 檔案存在且**有同名 key** → 腳本回 exit 2 + `{"status":"conflict"}`
+3. 收到 `conflict` → 詢問使用者：
+   ```
+   ⚠️ <project>/.env.jfrog 已經有 JFROG_TOKEN 值。
+   是否覆蓋成你剛才提供的新 token?
+   [Y] 是, 覆蓋舊 token
+   [N] 否, 保留現有 .env.jfrog 內容 (新 token 仍 export 進當前 session)
+   ```
+   - 選 [Y] → 重跑加 `--force` flag → `{"status":"replaced"}`
+   - 選 [N] → 不寫檔，僅 session 內生效
+
+`save_token.sh` 同時負責 `chmod 600` 與把 `.env.<service>` 加進 `<project>/.gitignore` —
+不需要 LLM 手動處理。**永遠不要直接用 Write/Edit 工具寫 token 檔**，那會失去
+chmod / gitignore 保護。
+
+下次 session 跑 preflight 時，相同的 token 就由 `preflight.sh` 自動 source，
+不會再被詢問。
 
 **警告 (⚠️) 不阻擋**，但要在 Phase 7.1 報告中列出（讓 reviewer 知道哪些步驟跑在
 降級模式下）。
@@ -1673,6 +1710,7 @@ bash scripts/snapshot_env_js.sh <project_path> restore
 |--------|-------------|
 | Phase 0.3: Pre-flight blockers | 列出 ❌ blockers + 修法 + 詢問 [1] 修完再來 / [2] 走 fallback / [3] 中止 |
 | Phase 0.3: 缺 auth token | 列出哪個 env var + token portal URL + 詢問 [1] 提供 token / [2] 跳過走 lockfile-only / [3] 中止 |
+| Phase 0.3.1: `.env.<service>` 已有同 key | 顯示衝突 + 詢問 [Y] 覆蓋舊 token / [N] 保留現有檔 (新 token 仍 session export) |
 | Phase 1.C.4: Jira ticket 解析結果 | 抽到的 package/版本/CVE/驗收條件,等使用者校正 |
 | Phase 2.0 (JS workspace): 範圍選擇 | 是否套用到 root / 特定 workspace / 全部 (見 Phase 2.0 表) |
 | Phase 2.2 B-3: Transitive lock-only 升級確認 | 套件是 transitive、parent 允許,僅更新 lock 不動宣告檔 |

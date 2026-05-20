@@ -103,6 +103,7 @@ SCRIPTS=(
     "preflight.sh"
     "parse_pm_errors.py"
     "validate_lockfile.sh"
+    "save_token.sh"
 )
 
 for script in "${SCRIPTS[@]}"; do
@@ -285,6 +286,17 @@ if command -v node &> /dev/null && [ -d "$SKILL_DIR/scripts/node_modules" ]; the
     else
         check_warn "parse_pm_errors.py 執行異常"
     fi
+    # save_token.sh — create then conflict-detect
+    TOK_TMP=$(mktemp -d)
+    SAVE_OUT1=$(bash "$SKILL_DIR/scripts/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v1" 2>/dev/null || true)
+    SAVE_OUT2_EXIT=0
+    bash "$SKILL_DIR/scripts/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v2" >/dev/null 2>&1 || SAVE_OUT2_EXIT=$?
+    if echo "$SAVE_OUT1" | jq -e '.status == "created"' >/dev/null 2>&1 && [ "$SAVE_OUT2_EXIT" = "2" ]; then
+        check_pass "save_token.sh 創建與衝突偵測都正確"
+    else
+        check_warn "save_token.sh 行為異常 (created=$SAVE_OUT1, conflict_exit=$SAVE_OUT2_EXIT)"
+    fi
+    rm -rf "$TOK_TMP"
     rm -rf "$JS_TMP"
 fi
 

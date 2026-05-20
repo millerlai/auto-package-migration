@@ -76,6 +76,8 @@ COMMON_ALLOW = [
     "Bash(command -v *)",
     "Bash(tar -xzf:*)",
     "Bash(shasum:*)",
+    # save_token.sh writes .env.<service> with chmod 600
+    "Bash(chmod 600:*)",
     # --- Web fetches ---
     "WebFetch(domain:pypi.org)",
     "WebFetch(domain:registry.npmjs.org)",
