@@ -23,7 +23,9 @@ COMMON_ALLOW = [
     "Bash(git diff:*)",
     "Bash(git checkout -b *)",
     "Bash(git add pyproject.toml poetry.lock)",
+    "Bash(git add package.json package-lock.json)",
     "Bash(git commit -m *)",
+    # --- Python package managers ---
     "Bash(poetry add *)",
     "Bash(poetry update *)",
     "Bash(poetry lock:*)",
@@ -40,10 +42,29 @@ COMMON_ALLOW = [
     "Bash(uv lock:*)",
     "Bash(uv sync:*)",
     "Bash(uv pip:*)",
+    # --- JavaScript package managers (MVP: npm; others when supported) ---
+    "Bash(node:*)",
+    "Bash(npm install:*)",
+    "Bash(npm ci:*)",
+    "Bash(npm update:*)",
+    "Bash(npm ls:*)",
+    "Bash(npm show:*)",
+    "Bash(npm view:*)",
+    "Bash(npm pack:*)",
+    "Bash(npm outdated:*)",
+    "Bash(npm rebuild:*)",
+    "Bash(npm audit:*)",
+    "Bash(npx --no-install:*)",
+    "Bash(npx --yes:*)",
+    # --- Shared utilities ---
     "Bash(grep:*)",
     "Bash(docker ps:*)",
     "Bash(command -v *)",
+    "Bash(tar -xzf:*)",
+    # --- Web fetches ---
     "WebFetch(domain:pypi.org)",
+    "WebFetch(domain:registry.npmjs.org)",
+    "WebFetch(domain:www.npmjs.com)",
     "WebFetch(domain:github.com)",
     "WebFetch(domain:raw.githubusercontent.com)",
     "WebFetch(domain:api.github.com)",
@@ -64,10 +85,12 @@ SCRIPT_ALLOW_BY_MODE = {
     "global": [
         "Bash(bash ~/.claude/skills/package-upgrade/scripts/*:*)",
         "Bash(python3 ~/.claude/skills/package-upgrade/scripts/*:*)",
+        "Bash(node ~/.claude/skills/package-upgrade/scripts/*:*)",
     ],
     "project": [
         "Bash(bash .claude/skills/package-upgrade/scripts/*:*)",
         "Bash(python3 .claude/skills/package-upgrade/scripts/*:*)",
+        "Bash(node .claude/skills/package-upgrade/scripts/*:*)",
     ],
 }
 

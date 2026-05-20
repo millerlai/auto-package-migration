@@ -91,14 +91,15 @@ echo -e "${GREEN}✓ 檔案已複製${NC}"
 
 # 設定執行權限
 echo ""
-echo -e "${BLUE}步驟 3/6: 設定執行權限${NC}"
+echo -e "${BLUE}步驟 3/7: 設定執行權限${NC}"
 chmod +x "$TARGET_DIR"/scripts/*.sh
 chmod +x "$TARGET_DIR"/scripts/*.py
+chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
 echo -e "${GREEN}✓ 執行權限已設定${NC}"
 
 # 檢查並安裝 Python 依賴
 echo ""
-echo -e "${BLUE}步驟 4/6: 檢查 Python 依賴${NC}"
+echo -e "${BLUE}步驟 4/7: 檢查 Python 依賴${NC}"
 
 MISSING_DEPS=()
 
@@ -125,9 +126,36 @@ else
     echo -e "${GREEN}✓ 所有依賴已安裝${NC}"
 fi
 
+# 檢查並安裝 Node 依賴 (JavaScript 支援)
+echo ""
+echo -e "${BLUE}步驟 5/7: 安裝 JavaScript 支援的 Node 依賴${NC}"
+
+if ! command -v node >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ 未偵測到 node — JavaScript 套件升級功能將無法使用${NC}"
+    echo "  安裝建議:"
+    echo "    macOS:        brew install node  (or use nvm)"
+    echo "    Ubuntu/Debian: sudo apt-get install nodejs npm"
+    echo "    或透過 nvm:   https://github.com/nvm-sh/nvm"
+    echo "  Python 套件升級不受影響。"
+elif ! command -v npm >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ 偵測到 node 但找不到 npm${NC}"
+    echo "  JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令"
+else
+    NODE_VER=$(node --version 2>/dev/null || echo "unknown")
+    echo "  node 版本: $NODE_VER"
+    if [ -f "$TARGET_DIR/scripts/package.json" ]; then
+        echo "  安裝 @babel/parser, @babel/traverse, ts-morph, semver..."
+        (cd "$TARGET_DIR/scripts" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1) && \
+            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/node_modules${NC}" || \
+            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts && npm install${NC}"
+    else
+        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/package.json,跳過 Node 依賴安裝${NC}"
+    fi
+fi
+
 # 檢查系統工具
 echo ""
-echo -e "${BLUE}步驟 5/6: 檢查系統工具${NC}"
+echo -e "${BLUE}步驟 6/7: 檢查系統工具${NC}"
 
 MISSING_TOOLS=()
 
@@ -163,7 +191,7 @@ fi
 
 # 設定 Claude Code 權限
 echo ""
-echo -e "${BLUE}步驟 6/6: 設定 Claude Code 權限${NC}"
+echo -e "${BLUE}步驟 7/7: 設定 Claude Code 權限${NC}"
 
 if [ "$MODE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
@@ -181,8 +209,10 @@ elif [ "$SKIP_PERMISSIONS" = "true" ]; then
 else
     echo ""
     echo "Skill 執行時會用到以下類型的權限:"
-    echo "  - Bash: skill 內建 scripts、git status/diff/log、poetry/pip/uv 套件操作、grep、docker ps"
-    echo "  - WebFetch: pypi.org、github.com、raw.githubusercontent.com、api.github.com"
+    echo "  - Bash: skill 內建 scripts、git status/diff/log、poetry/pip/uv 套件操作、"
+    echo "          npm install/ls/show/pack/audit、node、grep、docker ps、tar -xzf"
+    echo "  - WebFetch: pypi.org、registry.npmjs.org、www.npmjs.com、github.com、"
+    echo "              raw.githubusercontent.com、api.github.com"
     echo "  - WebSearch (用於查詢 CVE / changelog)"
     echo "  - MCP (Jira): getJiraIssue、getTransitionsForJiraIssue、getAccessibleAtlassianResources"
     echo ""
@@ -227,7 +257,8 @@ echo "   # 然後輸入:"
 echo "   list available skills"
 echo ""
 echo "3. 開始使用:"
-echo "   升級 requests 到 2.32.0"
+echo "   升級 requests 到 2.32.0      (Python)"
+echo "   升級 axios 到 1.6.0           (JavaScript)"
 echo "   修復 CVE-2024-35195"
 echo ""
 

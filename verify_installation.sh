@@ -19,15 +19,16 @@ echo "Package Upgrade Skill 安裝驗證"
 echo "=========================================="
 echo ""
 
-# 測試函式
+# 測試函式 (注意: bash 3.2 + set -e 會把 `((PASSED++))` 的零值結果視為錯誤,
+# 用 `: $((PASSED += 1))` 避開,因為 `:` 永遠回 0)
 check_pass() {
     echo -e "${GREEN}✓${NC} $1"
-    ((PASSED++))
+    : $((PASSED += 1))
 }
 
 check_fail() {
     echo -e "${RED}✗${NC} $1"
-    ((FAILED++))
+    : $((FAILED += 1))
 }
 
 check_warn() {
@@ -92,6 +93,13 @@ SCRIPTS=(
     "git_diff.sh"
     "run_tests.sh"
     "snapshot_env.sh"
+    "detect_env_js.sh"
+    "dep_tree_js.js"
+    "ast_scanner_js.js"
+    "api_surface_diff_js.js"
+    "git_diff_js.sh"
+    "run_tests_js.sh"
+    "snapshot_env_js.sh"
 )
 
 for script in "${SCRIPTS[@]}"; do
@@ -134,6 +142,10 @@ REFS=(
     "poetry_workflow.md"
     "uv_workflow.md"
     "breaking_change_patterns.md"
+    "js_workflow.md"
+    "npm_workflow.md"
+    "js_ast_strategy.md"
+    "breaking_change_patterns_js.md"
 )
 
 for ref in "${REFS[@]}"; do
@@ -199,6 +211,26 @@ else
     check_warn "gh CLI 不可用 (可選,用於自動建立 PR)"
 fi
 
+# 9b. Node + JS helper deps
+echo ""
+echo "9b. 檢查 Node 環境與 JS helper 依賴..."
+if command -v node &> /dev/null; then
+    NODE_VER=$(node --version 2>/dev/null || echo "?")
+    check_pass "node 可用 ($NODE_VER)"
+    if command -v npm &> /dev/null; then
+        check_pass "npm 可用"
+    else
+        check_warn "npm 不可用 (JS 升級流程會缺命令)"
+    fi
+    if [ -d "$SKILL_DIR/scripts/node_modules/@babel/parser" ]; then
+        check_pass "JS helper deps 已安裝 (@babel/parser found)"
+    else
+        check_warn "JS helper deps 未安裝 — 執行: cd $SKILL_DIR/scripts && npm install"
+    fi
+else
+    check_warn "node 不可用 — JavaScript 套件升級功能無法使用 (Python 功能不受影響)"
+fi
+
 # 10. 功能測試
 echo ""
 echo "10. 功能測試..."
@@ -217,6 +249,23 @@ if python3 -c "import requests" 2>/dev/null; then
     else
         check_warn "dep_tree.py 執行異常 (可能是專案沒有 requests)"
     fi
+fi
+
+# 測試 detect_env_js.sh on a synthetic package.json
+if command -v node &> /dev/null && [ -d "$SKILL_DIR/scripts/node_modules" ]; then
+    JS_TMP=$(mktemp -d)
+    echo '{"name":"verify","version":"1.0.0","dependencies":{}}' > "$JS_TMP/package.json"
+    if bash "$SKILL_DIR/scripts/detect_env_js.sh" "$JS_TMP" 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
+        check_pass "detect_env_js.sh 可正常執行"
+    else
+        check_warn "detect_env_js.sh 執行異常"
+    fi
+    if node "$SKILL_DIR/scripts/ast_scanner_js.js" "$JS_TMP" axios 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
+        check_pass "ast_scanner_js.js 可載入 @babel/parser 並執行"
+    else
+        check_warn "ast_scanner_js.js 執行異常 — 確認 cd $SKILL_DIR/scripts && npm install 已成功"
+    fi
+    rm -rf "$JS_TMP"
 fi
 
 # 總結
