@@ -157,6 +157,7 @@ PR URL 依 Phase 7.3 結果有三種型態：
 ## 🤖 Automated upgrade by Claude Code
 
 **Package**: `{package}` `{old_version}` → `{new_version}`
+**Changelog**: {changelog_url}                          ← Phase 3.1 NOT_FOUND 時整行省略
 **Branch**: `{branch_name}`
 **Commit**: `{commit_sha_short}`
 **Tests**: ✅ Passed ({test_count} tests) | ❌ {failed_count} failures

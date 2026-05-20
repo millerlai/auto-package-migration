@@ -12,6 +12,35 @@
 
 ## 報告結構
 
+### 0. References (必要) — 報告**第一節**就放外部連結
+
+**目的**: 讓 reviewer 在 5 秒內找到所有外部來源 (Changelog / Diff / PR / Jira / CVE)，
+不用翻到報告深處找。
+
+**應包含**：
+- Changelog URL (Phase 3.1 `changelog_source.url`)
+- Diff / Compare URL (Phase 3.2 `git_diff_source.compare_url`)
+- PR URL (Phase 7.3)
+- Jira URL (僅當 `jira_context` 存在)
+- CVE / GHSA / BDSA URL (若 Phase 1.B 觸發)
+
+**格式**：
+
+```markdown
+## References
+
+- **Changelog**: https://github.com/psf/requests/releases
+- **Diff**: https://github.com/psf/requests/compare/v2.28.0...v2.32.0
+- **PR**: https://github.com/your-org/your-repo/pull/123
+- **Jira**: https://trendmicro.atlassian.net/browse/V1E-148968
+- **CVE-2024-35195**: https://nvd.nist.gov/vuln/detail/CVE-2024-35195
+```
+
+**Changelog 找不到時**：寫 `_(no changelog found — analysis based on git diff only)_`
+而不是省略整行 — 讓 reviewer 知道分析的局限。
+
+---
+
 ### 1. Executive Summary (必要)
 
 **目的**: 用 3-5 句話讓讀者快速掌握整個升級的重點
