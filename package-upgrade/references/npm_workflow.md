@@ -36,16 +36,76 @@ npm install <package>@<version> --save-dev --ignore-scripts
 npm install <package>@<version> --save-peer --ignore-scripts
 ```
 
-### Transitive 升級（Phase 2 走 B-3 lock-only 路徑時）
+### Transitive 升級策略（按 `dep_tree_js.js` 的優先序執行）
+
+`dep_tree_js.js` 對每個 transitive target 會輸出 `upgrade_strategies[]`，
+按以下順序選擇對應命令：
+
+#### 1. `direct_bump` — target 在 package.json `dependencies`/`devDependencies`/`peerDependencies`
 
 ```bash
-# 只更新 lock，不動 package.json
-npm update <package> --ignore-scripts
+npm install <pkg>@<range> --save --ignore-scripts
 ```
 
-**驗證**：
-- `git diff package.json` 應為空
-- `git diff package-lock.json` 應顯示版本變動
+#### 2. `bump_override` — target 在 `overrides` (npm 慣例) 已被釘版
+
+直接編輯 `package.json` 把對應 entry 的 value 改成新版本：
+
+```jsonc
+{
+  "overrides": {
+    "<pkg>": "<new-version>"
+  }
+}
+```
+
+然後：
+```bash
+npm install --package-lock-only --ignore-scripts
+```
+
+#### 3. `bump_parent` — **預設推薦** 給沒有 override 的 transitive package
+
+```bash
+npm install <direct-parent>@<new-range> --save --ignore-scripts
+```
+
+升完 parent 後，npm 會把新版的 target 一併拉進 lock。記得 Phase 6 跑測試。
+
+#### 4. `add_override` — `bump_parent` 不適用 / 不夠精確時
+
+在 `package.json` 加 `overrides` (npm 8+)：
+
+```jsonc
+{
+  "overrides": {
+    "<pkg>": "<new-version>"
+  }
+}
+```
+
+然後：
+```bash
+npm install --package-lock-only --ignore-scripts
+```
+
+> **與 `bump_parent` 的取捨**: `add_override` 一定生效但繞過 parent 的相容性
+> 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版。
+
+#### 5. `lock_only` — **last resort**，僅在 `dep_tree_js.js` 確認無 override 且無 direct parent 可達時
+
+```bash
+npm update <package> --ignore-scripts
+# 或對 package-lock.json 手動編輯後跑：
+npm ci --offline --dry-run    # 驗證 checksum
+```
+
+**強烈不建議**走純 hand-edit lockfile — 未來 lock regenerate 會沖掉，且無 manifest 審計軌跡。
+
+**驗證所有 transitive 升級**：
+- `bump_parent` / `direct_bump` → `git diff package.json` 有變動、`git diff package-lock.json` 也有
+- `bump_override` / `add_override` → 同上（overrides 的變動算 manifest 變動）
+- `lock_only` → 只有 `package-lock.json` 動
 
 ### `@types/<pkg>` 同步升級
 

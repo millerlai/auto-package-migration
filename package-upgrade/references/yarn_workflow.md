@@ -52,30 +52,80 @@ $PKG_MANAGER_BIN up ip-address@10.2.0   # 設定範圍
 $PKG_MANAGER_BIN dedupe                  # recursive update lockfile
 ```
 
-### Transitive override (lock-only 升級的乾淨做法)
+### Transitive 升級策略（按 `dep_tree_js.js` 的優先序執行）
 
-當目標是 transitive package 而 parent 約束允許新版本時：
+`dep_tree_js.js` 對每個 transitive target 會輸出 `upgrade_strategies[]`，
+按以下順序選擇對應命令：
+
+#### 1. `direct_bump` — target 在 package.json `dependencies`/`devDependencies`/`peerDependencies`
 
 ```bash
-$PKG_MANAGER_BIN set resolution "<descriptor>" "npm:<exact-version>"
-
-# 範例: 把所有 ip-address 都鎖到 10.2.0
-$PKG_MANAGER_BIN set resolution "ip-address@npm:^10.1.0" "npm:10.2.0"
+$PKG_MANAGER_BIN up <pkg>@<range>
 ```
 
-這比 `yarn up <pkg>` 更精準 — 只動 `yarn.lock` 中的 `resolution:` 欄位，不動 `package.json`。
+#### 2. `bump_override` — target 在 `resolutions` (yarn 慣例) 已被釘版
 
-對應 `package.json` 的 manifest 寫法：
+直接編輯 `package.json` 把對應 entry 的 value 改成新版本：
 
 ```jsonc
 {
   "resolutions": {
-    "ip-address": "10.2.0"
+    "<pkg>": "<new-version>"
   }
 }
 ```
 
-→ 然後跑 `yarn install --mode update-lockfile`。
+然後：
+```bash
+$PKG_MANAGER_BIN install --mode update-lockfile
+```
+
+#### 3. `bump_parent` — **預設推薦** 給沒有 override 的 transitive package
+
+找 `dep_tree_js.js` 報的 `direct_parents[0]` 當新目標：
+
+```bash
+$PKG_MANAGER_BIN up <direct-parent>@<latest-or-range>
+```
+
+升完後，parent 自己的 `dependencies` 會拉新版的 target。記得在 Phase 6 跑足測試
+確認 parent 的新版本沒帶來其他 breaking。
+
+#### 4. `add_override` — `bump_parent` 不適用 / 不夠精確時的替代
+
+在 `package.json` 加 `resolutions` (yarn 是這個鍵)：
+
+```jsonc
+{
+  "resolutions": {
+    "<pkg>": "<new-version>"
+  }
+}
+```
+
+然後：
+```bash
+$PKG_MANAGER_BIN install --mode update-lockfile
+```
+
+或一個指令搞定（會自動寫入 `resolutions` 並 update lockfile）：
+
+```bash
+$PKG_MANAGER_BIN set resolution "<pkg>@npm:<old-range>" "npm:<new-version>"
+```
+
+> **與 `bump_parent` 的取捨**: `add_override` 一定生效但繞過 parent 的相容性
+> 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版（要驗證）。
+
+#### 5. `lock_only` — **last resort**，僅在 `dep_tree_js.js` 確認無 override 且無 direct parent 可達時
+
+```bash
+# 手動編輯 yarn.lock 的 target entry，再驗證
+$PKG_MANAGER_BIN install --immutable --check-cache --mode update-lockfile
+```
+
+或用 `set resolution`（即使 target 不在 package.json，仍會被加為 resolutions 並寫入 lock）。
+**強烈不建議純 hand-edit** — 未來 lockfile regenerate 會沖掉。
 
 ### Lock-only 重新解析（npm `--package-lock-only` 的對應）
 

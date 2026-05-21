@@ -432,9 +432,103 @@ JS 版的 dep_tree 已改為直接解析 lockfile（`yarn.lock` v1/v3、`pnpm-lo
 
 #### Type B — 間接引用 (transitive)
 
-> **核心原則**: transitive dependency 不應該動依賴宣告檔 (`pyproject.toml` /
-> `requirements.txt`)。優先嘗試「只更新 lock 檔案」這條最小擾動路徑;
-> 只有在 parent 的版本約束擋住目標版本時,才升級 parent (而且必須先問使用者)。
+> **核心原則** (JS 與 Python 略有不同):
+> - **Python**: 沒有 manifest-level transitive 釘版機制（pip 沒有 overrides），
+>   所以 transitive 升級走 lock-only。下方 Python-only path 沿用既有邏輯。
+> - **JavaScript**: 優先「**把意圖寫進 package.json**」 — 即升級直接 parent
+>   或使用 overrides/resolutions。**hand-edit lockfile 是 last resort**，
+>   只在 package.json 完全沒有 target 的任何約束時才允許。
+
+##### B (JS) — JavaScript 決策樹
+
+`dep_tree_js.js` 已經把所有可能的策略排好序輸出在 `upgrade_strategies[]`，
+按 `recommended_strategy` 對應的分支執行：
+
+**B/JS-1. `direct_bump`** — 不會走到 Type B（target 在 dependencies/devDeps/peerDeps，
+直接走 Type A 流程）。出現在這裡只是 schema 完整性。
+
+**B/JS-2. `bump_override`** — target 已被 `overrides` (npm) / `resolutions` (yarn) /
+`pnpm.overrides` 釘版。把 override 值改成 target 新版本，跑 install 讓 lock 跟著走。
+不去動 parent，因為使用者顯式表達過「鎖死 target 不管 parent 如何」。
+
+報告並暫停確認：
+```
+{package} 在 package.json#{field} 已有釘版 (current: {value})。
+建議直接更新該 override 為 {new_version} — 不需要動 parent。
+
+繼續嗎?
+[Y] 是, 升級 override 並進入 Phase 5
+[N] 取消
+```
+
+**B/JS-3. `bump_parent`** — **預設推薦**。target 不在 package.json，但
+`direct_parents` 含至少一個在 package.json 的直接依賴 P。升 P 而不是硬改 lock。
+
+報告並暫停確認：
+```
+{package} 是 transitive，由以下 direct parent(s) 引入：
+
+| Parent | 在 package.json 中的範圍 | parent 最新版本 | 升 parent 是否解決 |
+|--------|-------------------------|----------------|-------------------|
+| {direct_parent} | {constraint_in_root} | {latest} | ✅/❌ |
+| ...    | ...                     | ...            | ... |
+
+Parent chain: {target} ← ... ← {direct_parent}
+
+建議策略: 升級 {direct_parent} 到 {latest}，由它自己拉新版的 {package}。
+這比「直接動 lock」安全 — parent 對 target 的相容性已經由 parent 維護者驗證。
+
+繼續嗎?
+[Y] 是, 把 {direct_parent} 當成新目標跑 Phase 2~6
+[O] 升其他 parent (顯示完整 candidate 列表)
+[A] 改用 add_override (詳見 B/JS-4)
+[N] 取消
+```
+
+**B/JS-4. `add_override`** — target 是 transitive 且 package.json 沒有任何約束，
+但能走到一個 direct parent。提供「不動 parent，加 override」這條替代路徑。
+
+```
+無法保證升 {direct_parent} 一定會拉到 {package} 新版（parent 的範圍可能還是允許舊版）。
+替代方案: 在 package.json 加入 overrides/resolutions 把 {package} 釘到新版。
+
+對 npm:  "overrides":  {"{package}": "{new_version}"}
+對 yarn: "resolutions":{"{package}": "{new_version}"}
+對 pnpm: "pnpm": {"overrides": {"{package}": "{new_version}"}}
+
+優點: 一定會生效；缺點: 繞過 parent 的相容性測試，需要在 Phase 6 跑足測試。
+
+繼續嗎?
+[Y] 是, 加 override
+[N] 取消, 回到 B/JS-3 升 parent
+```
+
+**B/JS-5. `lock_only`** — **真正的 last resort**。只在以下都成立時才允許：
+- target 不在 dependencies/devDeps/peerDeps
+- target 不在 overrides/resolutions/pnpm.overrides
+- 沒有任何 direct parent 能走到 target（孤兒 transitive）
+
+這通常代表 lockfile 有手動撈進來的奇怪東西，或 workspace 結構特殊。
+強烈警告使用者後再繼續：
+
+```
+⚠️ {package} 在 lockfile 中存在，但：
+  - 沒在 package.json 任何 dependency 欄位
+  - 沒在 overrides / resolutions 中
+  - 走不到任何在 package.json 的 direct parent
+
+唯一辦法是手動 patch lockfile。這代表升級後沒有 manifest-level 的審計軌跡，
+未來 lockfile regenerate 時你的升級會被沖掉。
+
+是否仍要繼續?
+[Y] 是, 走 lock_only (我會跑 validate_lockfile.sh 確保 checksum 正確)
+[N] 中止, 請手動加 override 後再跑一次 skill
+```
+
+session 中標記 `upgrade_strategy = <chosen strategy>`，Phase 5.3 走對應命令
+（見 `references/yarn_workflow.md` / `references/npm_workflow.md`）。
+
+##### B (Python) — Python lock-only 路徑（既有邏輯保留）
 
 按以下順序判斷處理路徑,選定後在 Phase 5.3 對應執行:
 
@@ -453,7 +547,7 @@ JS 版的 dep_tree 已改為直接解析 lockfile（`yarn.lock` v1/v3、`pnpm-lo
 - ✅ 全部 parent 都允許 → 進入 B-3 (lock-only 升級)
 - ❌ 至少一個 parent 鎖住版本不允許目標版本 → 進入 B-4 (詢問是否升級 parent)
 
-**B-3. Lock-only 升級路徑** (parent 約束允許, 不動宣告檔)
+**B-3. Lock-only 升級路徑** (Python only — parent 約束允許, 不動宣告檔)
 
 報告給使用者並暫停確認:
 
@@ -472,7 +566,7 @@ JS 版的 dep_tree 已改為直接解析 lockfile（`yarn.lock` v1/v3、`pnpm-lo
 使用者同意 → 在 session 中標記 `upgrade_strategy = "lock_only"`,
 Phase 5.3 走對應的 lock-only 命令 (見 Phase 5.3 的「Transitive: lock-only 路徑」)。
 
-**B-4. Parent 約束阻擋 → 詢問是否升級 parent**
+**B-4. Parent 約束阻擋 → 詢問是否升級 parent** (Python only)
 
 > 這是新增的關鍵分支: 不要自己決定升級 parent, 永遠先問。
 
@@ -845,10 +939,23 @@ bash scripts/snapshot_env_js.sh <project_path> save
 
 **先決定走哪條路徑** (來自 Phase 2.2):
 
+**Python path** (簡化 2 分支):
 - `upgrade_strategy == "lock_only"` (Type B, parent 約束允許)
-  → 走下方「Transitive: lock-only 路徑」, **不要動 pyproject.toml / requirements.txt**
-- 其他情況 (Type A 直接引用、Type C 直接+間接、Type B 升級 parent)
-  → 走下方「Direct: 同時更新宣告檔 + lock」
+  → 走「Transitive: lock-only 路徑」, **不要動 pyproject.toml / requirements.txt**
+- 其他 (Type A 直接、Type C 直接+間接、Type B 升 parent)
+  → 走「Direct: 同時更新宣告檔 + lock」
+
+**JavaScript path** (5 分支對應 `upgrade_strategy`):
+
+| `upgrade_strategy` | 走哪條 | 指令樣板 (npm / yarn) |
+|---|---|---|
+| `direct_bump` | 「Direct: 同時更新宣告檔 + lock」 | `npm install <pkg>@<ver>` / `$PKG_MANAGER_BIN up <pkg>@<ver>` |
+| `bump_override` | 編輯 `package.json#overrides`/`resolutions` 後重 install | `npm install --package-lock-only` / `$PKG_MANAGER_BIN install --mode update-lockfile` |
+| `bump_parent` | 把 direct parent 當新目標跑 direct_bump | `npm install <parent>@<latest>` / `$PKG_MANAGER_BIN up <parent>` |
+| `add_override` | 編輯 `package.json` 新增 `overrides`/`resolutions` 後重 install | 同 `bump_override` |
+| `lock_only` | 「Transitive: lock-only 路徑」(yarn 用 `set resolution`，npm 用 `npm update`) | `$PKG_MANAGER_BIN set resolution ...` / `npm update <pkg>` |
+
+詳細命令見 `references/yarn_workflow.md` / `references/npm_workflow.md` 的「Transitive 升級策略」章節。
 
 ---
 
@@ -1713,8 +1820,12 @@ bash scripts/snapshot_env_js.sh <project_path> restore
 | Phase 0.3.1: `.env.<service>` 已有同 key | 顯示衝突 + 詢問 [Y] 覆蓋舊 token / [N] 保留現有檔 (新 token 仍 session export) |
 | Phase 1.C.4: Jira ticket 解析結果 | 抽到的 package/版本/CVE/驗收條件,等使用者校正 |
 | Phase 2.0 (JS workspace): 範圍選擇 | 是否套用到 root / 特定 workspace / 全部 (見 Phase 2.0 表) |
-| Phase 2.2 B-3: Transitive lock-only 升級確認 | 套件是 transitive、parent 允許,僅更新 lock 不動宣告檔 |
-| Phase 2.2 B-4: Parent 阻擋升級的決策 | parent 約束擋住,問使用者升級 parent / 放棄 / 自選 |
+| Phase 2.2 B/JS-2: 更新已存在的 override/resolution | target 已在 overrides/resolutions, 確認改值 |
+| Phase 2.2 B/JS-3: 升級 direct parent (預設推薦) | 哪個 parent / chain / 是否升 |
+| Phase 2.2 B/JS-4: 加 override 而非升 parent | 替代路徑, 列出 patch 內容後確認 |
+| Phase 2.2 B/JS-5: lock_only last resort | 強烈警告 + 詢問是否真要走 |
+| Phase 2.2 B-3 (Python): Transitive lock-only 升級確認 | 套件是 transitive、parent 允許,僅更新 lock 不動宣告檔 |
+| Phase 2.2 B-4 (Python): Parent 阻擋升級的決策 | parent 約束擋住,問使用者升級 parent / 放棄 / 自選 |
 | Phase 2.3: 衝突解決方案 | 多種方案 + 風險評估 + 推薦 |
 | Phase 4.4: 程式碼修改預覽 | 完整 diff + 每處修改的理由 |
 | Phase 5.1: 建立 Git 分支 | 分支名稱、即將開始修改 |

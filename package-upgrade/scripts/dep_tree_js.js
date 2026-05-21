@@ -96,6 +96,52 @@ function classifyDeclared(manifest, packageName) {
     return { declaredIn, declaredConstraint };
 }
 
+/**
+ * Look for the target in package.json's transitive-pinning fields:
+ *   - npm:   `overrides`
+ *   - yarn:  `resolutions`
+ *   - pnpm:  `pnpm.overrides`
+ *
+ * These let the user pin a transitive dep's version without bumping the
+ * parent. Per user feedback we MUST surface these to the LLM so it picks
+ * "bump the pin" over "hand-edit the lockfile".
+ *
+ * The match logic is conservative: top-level key equals target name, OR
+ * any nested key path ends in target. (overrides supports nested form like
+ * `{"foo": {"bar": "1.0"}}` which means bar gets pinned under foo.)
+ */
+function findOverridesPin(manifest, packageName) {
+    const result = { overrides: null, resolutions: null, pnpm_overrides: null };
+
+    function searchObj(obj, kind) {
+        if (!obj || typeof obj !== 'object') return null;
+        // Top-level direct match
+        if (Object.prototype.hasOwnProperty.call(obj, packageName)) {
+            const val = obj[packageName];
+            return { kind, key: packageName, value: typeof val === 'string' ? val : JSON.stringify(val) };
+        }
+        // Nested: any key whose value is an object that contains packageName
+        for (const [k, v] of Object.entries(obj)) {
+            if (v && typeof v === 'object' && !Array.isArray(v)) {
+                if (Object.prototype.hasOwnProperty.call(v, packageName)) {
+                    const inner = v[packageName];
+                    return {
+                        kind,
+                        key: `${k}.${packageName}`,
+                        value: typeof inner === 'string' ? inner : JSON.stringify(inner),
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
+    result.overrides      = searchObj(manifest.overrides, 'npm-overrides');
+    result.resolutions    = searchObj(manifest.resolutions, 'yarn-resolutions');
+    result.pnpm_overrides = searchObj(manifest.pnpm && manifest.pnpm.overrides, 'pnpm-overrides');
+    return result;
+}
+
 /* ============================================================
  * Lockfile parsers
  *
@@ -366,6 +412,164 @@ function getInstalledVersionFromLock(parsed, target) {
     return 'unknown';
 }
 
+/**
+ * Build a reverse-dependency index: { childName -> Set<parentName> }.
+ * This lets us walk UP the lockfile dep graph from any package to find
+ * its eventual "direct parents" (= packages declared in package.json).
+ */
+function buildReverseIndex(parsed) {
+    const reverse = new Map(); // child -> Set<parent>
+    for (const entry of parsed.entries) {
+        const isWorkspace = (entry.locators || []).some(l => /@workspace:/.test(l));
+        if (isWorkspace) continue;
+        for (const childName of Object.keys(entry.dependencies || {})) {
+            if (!reverse.has(childName)) reverse.set(childName, new Set());
+            reverse.get(childName).add(entry.name);
+        }
+        for (const childName of Object.keys(entry.peerDependencies || {})) {
+            if (!reverse.has(childName)) reverse.set(childName, new Set());
+            reverse.get(childName).add(entry.name);
+        }
+    }
+    return reverse;
+}
+
+/**
+ * Walk UP the lockfile graph from `target` until we hit packages that are
+ * declared in package.json (= "direct parents"). Returns ALL distinct
+ * chains found and a flat list of direct parent names.
+ *
+ * Each chain is an ordered array from target to direct-parent, e.g.
+ * ["ip-address", "some-mid-pkg", "axios"] means
+ *   axios → some-mid-pkg → ip-address
+ * and `axios` is in package.json.
+ *
+ * Capped at maxDepth to avoid runaway in pathological graphs.
+ */
+function walkUpToDirectParents(target, reverseIndex, directDepNames, maxDepth = 10) {
+    const chains = [];
+    const directParents = new Set();
+    const transitiveParents = new Set();
+
+    // BFS: each frontier element is { chain: [<target>, ...] }
+    const queue = [{ chain: [target] }];
+    const visited = new Set([target]);
+
+    while (queue.length > 0) {
+        const { chain } = queue.shift();
+        const node = chain[chain.length - 1];
+        if (chain.length > maxDepth) continue;
+
+        const parents = reverseIndex.get(node);
+        if (!parents || parents.size === 0) continue;
+
+        for (const parent of parents) {
+            if (visited.has(parent)) continue;
+            const newChain = [...chain, parent];
+
+            if (directDepNames.has(parent)) {
+                // Reached a direct parent — chain complete
+                directParents.add(parent);
+                chains.push(newChain);
+            } else {
+                transitiveParents.add(parent);
+                visited.add(parent);
+                queue.push({ chain: newChain });
+            }
+        }
+    }
+
+    return {
+        chains,
+        direct_parents: Array.from(directParents),
+        transitive_parents: Array.from(transitiveParents),
+    };
+}
+
+/**
+ * Decide the recommended upgrade strategy ranked by user preference:
+ *   1. direct_bump  — target is declared directly in package.json
+ *   2. bump_override — target is in package.json overrides/resolutions
+ *   3. bump_parent  — bump a direct parent so it pulls a new target
+ *   4. add_override — no parent path works; add overrides/resolutions
+ *   5. lock_only    — last resort; truly orphan transitive with no parent
+ *                     in package.json and no override field exists
+ */
+function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
+                                directParents, transitiveParents, chains,
+                                pkgManager }) {
+    const strategies = [];
+
+    if (declaredIn.length > 0) {
+        strategies.push({
+            type: 'direct_bump',
+            rationale: `Target is declared directly in package.json (${declaredIn.join(', ')}); bump it there and the lockfile follows.`,
+            current_constraint: declaredConstraint,
+            apply_hint: pkgManager === 'yarn'
+                ? `$PKG_MANAGER_BIN up <target>@<new-range>`
+                : pkgManager === 'pnpm'
+                    ? `pnpm up <target>@<new-range>`
+                    : `npm install <target>@<new-range>`,
+        });
+        return strategies; // direct supersedes everything else
+    }
+
+    const overrideHit = overridesPin.overrides || overridesPin.resolutions || overridesPin.pnpm_overrides;
+    if (overrideHit) {
+        strategies.push({
+            type: 'bump_override',
+            rationale: `Target is pinned via ${overrideHit.kind} (key: ${overrideHit.key}, current: ${overrideHit.value}). Update that entry in package.json — preferable to hand-editing the lockfile.`,
+            field: overrideHit.kind,
+            current_value: overrideHit.value,
+        });
+    }
+
+    if (directParents.length > 0) {
+        for (const parent of directParents) {
+            // Find the chain(s) that end in this parent
+            const chainsForParent = chains.filter(c => c[c.length - 1] === parent);
+            strategies.push({
+                type: 'bump_parent',
+                target: parent,
+                rationale: `${parent} is a direct dependency that (transitively) pulls in the target. Bumping ${parent} lets ITS new release pick a compatible target version — safer than overriding the lockfile entry.`,
+                parent_chain: chainsForParent[0] || [parent],
+                apply_hint: pkgManager === 'yarn'
+                    ? `$PKG_MANAGER_BIN up ${parent}`
+                    : pkgManager === 'pnpm'
+                        ? `pnpm up ${parent}`
+                        : `npm install ${parent}@<new-range>`,
+            });
+        }
+    }
+
+    // add_override is always offered when target is transitive and no direct
+    // package.json constraint exists — covers the case where bump_parent's
+    // new version doesn't actually pull a new target.
+    if (declaredIn.length === 0 && !overrideHit) {
+        strategies.push({
+            type: 'add_override',
+            rationale: 'Add an overrides (npm) / resolutions (yarn) / pnpm.overrides entry to package.json to pin the target to the new version. Expresses intent in package.json instead of hand-editing the lockfile.',
+            patch_hint: pkgManager === 'yarn'
+                ? '{"resolutions": {"<target>": "<new-version>"}}'
+                : pkgManager === 'pnpm'
+                    ? '{"pnpm": {"overrides": {"<target>": "<new-version>"}}}'
+                    : '{"overrides": {"<target>": "<new-version>"}}',
+        });
+    }
+
+    // lock_only is the LAST resort and only listed when there's no
+    // package.json constraint whatsoever AND no direct parent path exists.
+    if (declaredIn.length === 0 && !overrideHit && directParents.length === 0) {
+        strategies.push({
+            type: 'lock_only',
+            rationale: '⚠️ Last resort: no package.json constraint exists for target, and no direct parent could be walked to. This means hand-editing the lockfile or running pkg-manager-specific lock-update commands. Make sure validate_lockfile.sh passes before committing.',
+            warning: 'Hand-editing the lockfile loses the audit trail; prefer add_override above unless explicitly told otherwise.',
+        });
+    }
+
+    return strategies;
+}
+
 /* ============================================================
  * Fallback: package-manager `ls`-based tree (existing behavior).
  * Kept for the rare case where no lockfile exists.
@@ -430,6 +634,14 @@ function main() {
     }
 
     const { declaredIn, declaredConstraint } = classifyDeclared(manifest, args.packageName);
+    const overridesPin = findOverridesPin(manifest, args.packageName);
+
+    // Build the set of direct dependency names (anything declared in
+    // package.json's dep fields) for parent-chain walking.
+    const directDepNames = new Set();
+    for (const field of DEP_FIELDS) {
+        if (manifest[field]) for (const name of Object.keys(manifest[field])) directDepNames.add(name);
+    }
 
     // ---- Lockfile-first ----
     const lockfile = detectLockfile(args.projectPath);
@@ -438,28 +650,33 @@ function main() {
     let installedVersion = 'unknown';
     let source = 'unknown';
     let fullTree = null;
+    let chainInfo = { chains: [], direct_parents: [], transitive_parents: [] };
+    let parsedLockfile = null;
 
     if (lockfile) {
         const text = fs.readFileSync(lockfile.path, 'utf8');
-        let parsed;
         try {
             if (lockfile.pm === 'yarn') {
-                parsed = isYarnBerry(text) ? parseYarnBerry(text) : parseYarn1(text);
+                parsedLockfile = isYarnBerry(text) ? parseYarnBerry(text) : parseYarn1(text);
             } else if (lockfile.pm === 'pnpm') {
-                parsed = parsePnpm(text);
+                parsedLockfile = parsePnpm(text);
             } else if (lockfile.pm === 'npm') {
-                parsed = parseNpmLock(text);
+                parsedLockfile = parseNpmLock(text);
             } else if (lockfile.pm === 'bun') {
                 // bun.lock(b): no robust parser without bun runtime; record as unsupported
                 errors.push('bun lockfile parsing not implemented yet; falling back to package.json declaration only');
-                parsed = { entries: [], format: 'bun-unsupported' };
+                parsedLockfile = { entries: [], format: 'bun-unsupported' };
             }
-            source = parsed.format;
-            const collected = collectParentsFromLock(parsed, args.packageName, manifest.name);
+            source = parsedLockfile.format;
+            const collected = collectParentsFromLock(parsedLockfile, args.packageName, manifest.name);
             parents = collected.parents;
             constraints = collected.constraints;
-            installedVersion = getInstalledVersionFromLock(parsed, args.packageName);
-            fullTree = { format: parsed.format, entry_count: parsed.entries.length };
+            installedVersion = getInstalledVersionFromLock(parsedLockfile, args.packageName);
+            fullTree = { format: parsedLockfile.format, entry_count: parsedLockfile.entries.length };
+
+            // Walk up the lockfile dep graph to find direct parents
+            const reverseIndex = buildReverseIndex(parsedLockfile);
+            chainInfo = walkUpToDirectParents(args.packageName, reverseIndex, directDepNames);
         } catch (err) {
             errors.push(`lockfile parse failed: ${err.message}`);
         }
@@ -491,6 +708,19 @@ function main() {
 
     if (declaredConstraint !== null) constraints.__declared__ = declaredConstraint;
 
+    // Recommend upgrade strategies in priority order (per user feedback:
+    // prefer bumping the source-of-truth in package.json over hand-editing
+    // the lockfile).
+    const upgradeStrategies = recommendStrategies({
+        declaredIn,
+        declaredConstraint,
+        overridesPin,
+        directParents: chainInfo.direct_parents,
+        transitiveParents: chainInfo.transitive_parents,
+        chains: chainInfo.chains,
+        pkgManager,
+    });
+
     const result = {
         package_name: args.packageName,
         language: 'javascript',
@@ -500,9 +730,23 @@ function main() {
         is_direct: isDirect,
         is_transitive: isTransitive,
         is_peer: isPeer,
+        // Backward-compat fields
         parent_packages: parents,
         version_constraints: constraints,
         declared_in: declaredIn,
+        // NEW fields — package.json transitive-pinning detection
+        package_json_pin: {
+            overrides:      overridesPin.overrides,
+            resolutions:    overridesPin.resolutions,
+            pnpm_overrides: overridesPin.pnpm_overrides,
+        },
+        // NEW fields — parent-chain walking
+        direct_parents:     chainInfo.direct_parents,
+        transitive_parents: chainInfo.transitive_parents,
+        parent_chains:      chainInfo.chains,
+        // NEW field — ranked upgrade strategies
+        upgrade_strategies: upgradeStrategies,
+        recommended_strategy: upgradeStrategies[0] ? upgradeStrategies[0].type : null,
         source,
         full_tree: fullTree,
         errors,
