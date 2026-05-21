@@ -57,3 +57,6 @@ htmlcov/
 
 # Logs
 *.log
+
+# Temporary Go module cache lock files
+root/pkg/mod/cache/
