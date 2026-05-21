@@ -13,11 +13,27 @@ NC='\033[0m'
 
 # 預設安裝模式
 MODE="global"
+SKIP_PERMISSIONS="false"
 
 # 解析參數
-if [ "${1:-}" = "--project" ]; then
-    MODE="project"
-fi
+for arg in "$@"; do
+    case "$arg" in
+        --project) MODE="project" ;;
+        --global)  MODE="global"  ;;
+        --skip-permissions) SKIP_PERMISSIONS="true" ;;
+        -h|--help)
+            cat <<EOF
+Usage: bash install.sh [--global|--project] [--skip-permissions]
+
+  --global              Install to ~/.claude/skills/package-upgrade (default)
+  --project             Install to ./.claude/skills/package-upgrade
+  --skip-permissions    Don't offer to write the recommended Claude Code
+                        permissions into settings.json
+EOF
+            exit 0
+            ;;
+    esac
+done
 
 echo -e "${BLUE}=========================================="
 echo "Package Upgrade Skill 安裝程式"
@@ -53,7 +69,7 @@ fi
 
 # 建立目標目錄
 echo ""
-echo -e "${BLUE}步驟 1/5: 建立目錄${NC}"
+echo -e "${BLUE}步驟 1/6: 建立目錄${NC}"
 mkdir -p "$(dirname "$TARGET_DIR")"
 
 if [ -d "$TARGET_DIR" ]; then
@@ -69,20 +85,21 @@ fi
 
 # 複製檔案
 echo ""
-echo -e "${BLUE}步驟 2/5: 複製檔案${NC}"
+echo -e "${BLUE}步驟 2/6: 複製檔案${NC}"
 cp -r package-upgrade "$TARGET_DIR"
 echo -e "${GREEN}✓ 檔案已複製${NC}"
 
 # 設定執行權限
 echo ""
-echo -e "${BLUE}步驟 3/5: 設定執行權限${NC}"
+echo -e "${BLUE}步驟 3/7: 設定執行權限${NC}"
 chmod +x "$TARGET_DIR"/scripts/*.sh
 chmod +x "$TARGET_DIR"/scripts/*.py
+chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
 echo -e "${GREEN}✓ 執行權限已設定${NC}"
 
 # 檢查並安裝 Python 依賴
 echo ""
-echo -e "${BLUE}步驟 4/5: 檢查 Python 依賴${NC}"
+echo -e "${BLUE}步驟 4/7: 檢查 Python 依賴${NC}"
 
 MISSING_DEPS=()
 
@@ -109,9 +126,36 @@ else
     echo -e "${GREEN}✓ 所有依賴已安裝${NC}"
 fi
 
+# 檢查並安裝 Node 依賴 (JavaScript 支援)
+echo ""
+echo -e "${BLUE}步驟 5/7: 安裝 JavaScript 支援的 Node 依賴${NC}"
+
+if ! command -v node >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ 未偵測到 node — JavaScript 套件升級功能將無法使用${NC}"
+    echo "  安裝建議:"
+    echo "    macOS:        brew install node  (or use nvm)"
+    echo "    Ubuntu/Debian: sudo apt-get install nodejs npm"
+    echo "    或透過 nvm:   https://github.com/nvm-sh/nvm"
+    echo "  Python 套件升級不受影響。"
+elif ! command -v npm >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ 偵測到 node 但找不到 npm${NC}"
+    echo "  JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令"
+else
+    NODE_VER=$(node --version 2>/dev/null || echo "unknown")
+    echo "  node 版本: $NODE_VER"
+    if [ -f "$TARGET_DIR/scripts/package.json" ]; then
+        echo "  安裝 @babel/parser, @babel/traverse, ts-morph, semver..."
+        (cd "$TARGET_DIR/scripts" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1) && \
+            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/node_modules${NC}" || \
+            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts && npm install${NC}"
+    else
+        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/package.json,跳過 Node 依賴安裝${NC}"
+    fi
+fi
+
 # 檢查系統工具
 echo ""
-echo -e "${BLUE}步驟 5/5: 檢查系統工具${NC}"
+echo -e "${BLUE}步驟 6/7: 檢查系統工具${NC}"
 
 MISSING_TOOLS=()
 
@@ -145,6 +189,55 @@ else
     echo -e "${GREEN}✓ 所有系統工具已安裝${NC}"
 fi
 
+# 設定 Claude Code 權限
+echo ""
+echo -e "${BLUE}步驟 7/7: 設定 Claude Code 權限${NC}"
+
+if [ "$MODE" = "global" ]; then
+    SETTINGS_FILE="$HOME/.claude/settings.json"
+else
+    SETTINGS_FILE="./.claude/settings.json"
+fi
+
+GRANT_SCRIPT="$(dirname "$0")/grant_permissions.py"
+if [ ! -f "$GRANT_SCRIPT" ]; then
+    echo -e "${YELLOW}⚠ 找不到 grant_permissions.py,跳過權限設定${NC}"
+elif [ "$SKIP_PERMISSIONS" = "true" ]; then
+    echo -e "${YELLOW}已指定 --skip-permissions,跳過權限設定${NC}"
+    echo "若要稍後手動套用,執行:"
+    echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE"
+else
+    echo ""
+    echo "Skill 執行時會用到以下類型的權限:"
+    echo "  - Bash: skill 內建 scripts、git status/diff/log、poetry/pip/uv 套件操作、"
+    echo "          npm install/ls/show/pack/audit、node、grep、docker ps、tar -xzf"
+    echo "  - WebFetch: pypi.org、registry.npmjs.org、www.npmjs.com、github.com、"
+    echo "              raw.githubusercontent.com、api.github.com"
+    echo "  - WebSearch (用於查詢 CVE / changelog)"
+    echo "  - MCP (Jira): getJiraIssue、getTransitionsForJiraIssue、getAccessibleAtlassianResources"
+    echo ""
+    echo "下列動作會放入 'ask' 清單,執行前仍會提示確認:"
+    echo "  - git push、git commit (非 -m 形式)"
+    echo "  - 對 Jira 寫入留言 / 轉狀態"
+    echo ""
+    echo "預覽 (dry-run) 將要寫入 $SETTINGS_FILE 的變更..."
+    echo ""
+    if python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE" --dry-run; then
+        echo ""
+        read -p "套用這些權限? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE"
+            echo -e "${GREEN}✓ 權限已寫入 $SETTINGS_FILE${NC}"
+        else
+            echo -e "${YELLOW}已跳過,可日後執行:${NC}"
+            echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE"
+        fi
+    else
+        echo -e "${RED}✗ 權限預覽失敗,請檢查 $SETTINGS_FILE 是否為合法 JSON${NC}"
+    fi
+fi
+
 # 安裝完成
 echo ""
 echo -e "${GREEN}=========================================="
@@ -164,7 +257,8 @@ echo "   # 然後輸入:"
 echo "   list available skills"
 echo ""
 echo "3. 開始使用:"
-echo "   升級 requests 到 2.32.0"
+echo "   升級 requests 到 2.32.0      (Python)"
+echo "   升級 axios 到 1.6.0           (JavaScript)"
 echo "   修復 CVE-2024-35195"
 echo ""
 

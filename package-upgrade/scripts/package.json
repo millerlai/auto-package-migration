@@ -1,0 +1,13 @@
+{
+  "name": "package-upgrade-skill-helpers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node-side helpers for the package-upgrade Claude Code skill (JavaScript support).",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/parser": "^7.24.0",
+    "@babel/traverse": "^7.24.0",
+    "semver": "^7.6.0",
+    "ts-morph": "^22.0.0"
+  }
+}
