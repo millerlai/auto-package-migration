@@ -17,7 +17,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # 3. 安裝依賴
 uv sync
 
-# 4. 驗證安裝
+# 4. 啟用 pre-commit hooks (每次 commit 自動跑 ruff)
+uv run pre-commit install
+
+# 5. 驗證安裝
 bash verify_installation.sh
 ```
 
@@ -79,11 +82,17 @@ python package-upgrade/scripts/dep_tree.py . requests
 uv run black package-upgrade/scripts/*.py
 
 # Lint 檢查 (ruff)
-uv run ruff check package-upgrade/scripts/*.py
+uv run ruff check .
 
 # 自動修復
-uv run ruff check --fix package-upgrade/scripts/*.py
+uv run ruff check --fix .
+
+# 手動跑所有 pre-commit hooks (含 ruff)
+uv run pre-commit run --all-files
 ```
+
+> Pre-commit hook 已在環境設定步驟啟用，每次 `git commit` 會自動跑 ruff。
+> CI 也會在 push / PR 時跑 `ruff check .`，所以 commit 前讓 ruff 通過很重要。
 
 ### 5. 測試安裝流程
 

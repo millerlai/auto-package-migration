@@ -19,7 +19,6 @@ import json
 import sys
 from pathlib import Path
 
-
 COMMON_ALLOW = [
     "Bash(git status:*)",
     "Bash(git rev-parse:*)",
