@@ -1,8 +1,6 @@
 """Tests for package-upgrade/scripts/parse_pm_errors.py."""
 from __future__ import annotations
 
-import pytest
-
 import parse_pm_errors as ppe
 
 
