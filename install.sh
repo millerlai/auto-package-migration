@@ -69,7 +69,7 @@ fi
 
 # 建立目標目錄
 echo ""
-echo -e "${BLUE}步驟 1/6: 建立目錄${NC}"
+echo -e "${BLUE}步驟 1/8: 建立目錄${NC}"
 mkdir -p "$(dirname "$TARGET_DIR")"
 
 if [ -d "$TARGET_DIR" ]; then
@@ -85,13 +85,13 @@ fi
 
 # 複製檔案
 echo ""
-echo -e "${BLUE}步驟 2/6: 複製檔案${NC}"
+echo -e "${BLUE}步驟 2/8: 複製檔案${NC}"
 cp -r package-upgrade "$TARGET_DIR"
 echo -e "${GREEN}✓ 檔案已複製${NC}"
 
 # 設定執行權限
 echo ""
-echo -e "${BLUE}步驟 3/7: 設定執行權限${NC}"
+echo -e "${BLUE}步驟 3/8: 設定執行權限${NC}"
 chmod +x "$TARGET_DIR"/scripts/*.sh
 chmod +x "$TARGET_DIR"/scripts/*.py
 chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
@@ -99,7 +99,7 @@ echo -e "${GREEN}✓ 執行權限已設定${NC}"
 
 # 檢查並安裝 Python 依賴
 echo ""
-echo -e "${BLUE}步驟 4/7: 檢查 Python 依賴${NC}"
+echo -e "${BLUE}步驟 4/8: 檢查 Python 依賴${NC}"
 
 MISSING_DEPS=()
 
@@ -128,7 +128,7 @@ fi
 
 # 檢查並安裝 Node 依賴 (JavaScript 支援)
 echo ""
-echo -e "${BLUE}步驟 5/7: 安裝 JavaScript 支援的 Node 依賴${NC}"
+echo -e "${BLUE}步驟 5/8: 安裝 JavaScript 支援的 Node 依賴${NC}"
 
 if ! command -v node >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ 未偵測到 node — JavaScript 套件升級功能將無法使用${NC}"
@@ -155,7 +155,7 @@ fi
 
 # 檢查系統工具
 echo ""
-echo -e "${BLUE}步驟 6/7: 檢查系統工具${NC}"
+echo -e "${BLUE}步驟 6/8: 檢查系統工具${NC}"
 
 MISSING_TOOLS=()
 
@@ -189,9 +189,113 @@ else
     echo -e "${GREEN}✓ 所有系統工具已安裝${NC}"
 fi
 
+# 檢查 / 安裝 gh CLI (PR 自動化)
+echo ""
+echo -e "${BLUE}步驟 7/8: 檢查 gh CLI (GitHub PR 自動化)${NC}"
+
+GH_AVAILABLE="false"
+
+install_gh() {
+    case "$(uname -s)" in
+        Darwin*)
+            if command -v brew >/dev/null 2>&1; then
+                echo "  使用 brew 安裝..."
+                brew install gh && return 0 || return 1
+            else
+                cat <<'GH_EOF'
+  macOS 偵測到無 brew。請在另一個 terminal 執行以下任一方式:
+    1) 先裝 brew: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+       再裝 gh:   brew install gh
+    2) 從 https://github.com/cli/cli/releases 下載 .pkg 直接安裝
+GH_EOF
+                read -p "  安裝完成後按 Enter 繼續 (或 Ctrl-C 中止)..." -r
+            fi
+            ;;
+        Linux*)
+            if [ -f /etc/debian_version ]; then
+                cat <<'GH_EOF'
+  請在另一個 terminal 執行以下指令安裝 gh (官方 apt source):
+
+    (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+    && sudo mkdir -p -m 755 /etc/apt/keyrings \
+    && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && sudo apt update \
+    && sudo apt install gh -y
+GH_EOF
+            elif [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then
+                echo "  請在另一個 terminal 執行: sudo dnf install gh"
+            elif [ -f /etc/arch-release ]; then
+                echo "  請在另一個 terminal 執行: sudo pacman -S github-cli"
+            else
+                echo "  未識別的 Linux 發行版。請參考 https://github.com/cli/cli#installation"
+            fi
+            read -p "  安裝完成後按 Enter 繼續 (或 Ctrl-C 中止)..." -r
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            if command -v winget >/dev/null 2>&1; then
+                echo "  使用 winget 安裝..."
+                winget install --id GitHub.cli -e --source winget && return 0 || return 1
+            else
+                cat <<'GH_EOF'
+  Windows 偵測到無 winget。請在另一個 terminal 執行以下任一方式:
+    1) scoop install gh
+    2) choco install gh
+    3) 從 https://github.com/cli/cli/releases 下載 .msi 安裝
+GH_EOF
+                read -p "  安裝完成後按 Enter 繼續 (或 Ctrl-C 中止)..." -r
+            fi
+            ;;
+        *)
+            echo "  未識別的 OS: $(uname -s)。請參考 https://github.com/cli/cli#installation"
+            read -p "  安裝完成後按 Enter 繼續 (或 Ctrl-C 中止)..." -r
+            ;;
+    esac
+    return 0
+}
+
+if command -v gh >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ 已安裝 gh: $(gh --version 2>/dev/null | head -1)${NC}"
+    GH_AVAILABLE="true"
+else
+    echo -e "${YELLOW}未偵測到 gh CLI${NC}"
+    echo "  gh 用於 Phase 7 自動建立 GitHub PR; 沒裝的話 skill 會 fallback 為印 URL 讓你手動建。"
+    read -p "  是否現在安裝 gh? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        install_gh
+        # 重新檢查 — 自動裝可能成功也可能失敗;手動裝完按 Enter 後也要再驗一次
+        if command -v gh >/dev/null 2>&1; then
+            echo -e "${GREEN}✓ gh 已就緒: $(gh --version 2>/dev/null | head -1)${NC}"
+            GH_AVAILABLE="true"
+        else
+            echo -e "${YELLOW}⚠ 安裝後仍找不到 gh,跳過認證與權限步驟${NC}"
+        fi
+    else
+        echo "  已跳過 gh 安裝。"
+    fi
+fi
+
+# gh 認證
+if [ "$GH_AVAILABLE" = "true" ]; then
+    if gh auth status >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ gh 已認證${NC}"
+    else
+        echo -e "${YELLOW}gh 尚未認證 — Skill 建立 PR 時會失敗${NC}"
+        read -p "  現在執行 gh auth login? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            gh auth login || echo -e "${YELLOW}⚠ gh auth login 未完成,可日後手動執行: gh auth login${NC}"
+        else
+            echo "  已跳過。日後請執行: gh auth login"
+        fi
+    fi
+fi
+
 # 設定 Claude Code 權限
 echo ""
-echo -e "${BLUE}步驟 7/7: 設定 Claude Code 權限${NC}"
+echo -e "${BLUE}步驟 8/8: 設定 Claude Code 權限${NC}"
 
 if [ "$MODE" = "global" ]; then
     SETTINGS_FILE="$HOME/.claude/settings.json"
@@ -205,7 +309,7 @@ if [ ! -f "$GRANT_SCRIPT" ]; then
 elif [ "$SKIP_PERMISSIONS" = "true" ]; then
     echo -e "${YELLOW}已指定 --skip-permissions,跳過權限設定${NC}"
     echo "若要稍後手動套用,執行:"
-    echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE"
+    echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE [--gh-entries all|none|<keys>]"
 else
     echo ""
     echo "Skill 執行時會用到以下類型的權限:"
@@ -220,18 +324,77 @@ else
     echo "  - git push、git commit (非 -m 形式)"
     echo "  - 對 Jira 寫入留言 / 轉狀態"
     echo ""
+
+    # --- gh 權限 (opt-in) ---
+    # 4 個 gh entries 不再預設打開;依使用者選擇填入 --gh-entries
+    GH_ENTRIES="none"
+    GH_KEYS=("auth_status" "pr_create" "pr_view" "api")
+    GH_VALUES=("Bash(gh auth status:*)" "Bash(gh pr create:*)" "Bash(gh pr view:*)" "Bash(gh api:*)")
+    GH_DESCS=(
+        "檢查 gh 認證狀態 (建議,Phase 0/preflight 會用到)"
+        "自動建立 GitHub PR (建議,Phase 7 核心動作)"
+        "查 PR 狀態與內容"
+        "呼叫 GitHub REST API (例: GHE 認證檢查、PR 細節)"
+    )
+
+    echo "gh CLI 權限 (4 個 entries) 為 opt-in:"
+    for i in 0 1 2 3; do
+        echo "  - ${GH_VALUES[$i]}  — ${GH_DESCS[$i]}"
+    done
+    if [ "$GH_AVAILABLE" = "true" ]; then
+        GH_HINT="Y"
+        GH_PROMPT="開啟 gh 權限? [Y]全開 / [N]全不開 / [S]逐項選 (預設 Y,因偵測到 gh): "
+    else
+        GH_HINT="N"
+        GH_PROMPT="開啟 gh 權限? [y]全開 / [N]全不開 / [s]逐項選 (預設 N,因未偵測到 gh): "
+    fi
+    read -p "$GH_PROMPT" -n 1 -r
+    echo
+    GH_REPLY="${REPLY:-$GH_HINT}"
+    case "$GH_REPLY" in
+        [Yy])
+            GH_ENTRIES="all"
+            ;;
+        [Ss])
+            SELECTED=()
+            for i in 0 1 2 3; do
+                read -p "  - ${GH_VALUES[$i]}? (y/N) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    SELECTED+=("${GH_KEYS[$i]}")
+                fi
+            done
+            if [ ${#SELECTED[@]} -gt 0 ]; then
+                # bash 3.2 相容: 用迴圈組 comma-separated
+                GH_ENTRIES=""
+                for key in "${SELECTED[@]}"; do
+                    if [ -z "$GH_ENTRIES" ]; then
+                        GH_ENTRIES="$key"
+                    else
+                        GH_ENTRIES="$GH_ENTRIES,$key"
+                    fi
+                done
+            fi
+            ;;
+        *)
+            GH_ENTRIES="none"
+            ;;
+    esac
+    echo "  → gh-entries: $GH_ENTRIES"
+    echo ""
+
     echo "預覽 (dry-run) 將要寫入 $SETTINGS_FILE 的變更..."
     echo ""
-    if python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE" --dry-run; then
+    if python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE" --gh-entries "$GH_ENTRIES" --dry-run; then
         echo ""
         read -p "套用這些權限? (y/N) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE"
+            python3 "$GRANT_SCRIPT" --settings "$SETTINGS_FILE" --mode "$MODE" --gh-entries "$GH_ENTRIES"
             echo -e "${GREEN}✓ 權限已寫入 $SETTINGS_FILE${NC}"
         else
             echo -e "${YELLOW}已跳過,可日後執行:${NC}"
-            echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE"
+            echo "  python3 $GRANT_SCRIPT --settings $SETTINGS_FILE --mode $MODE --gh-entries $GH_ENTRIES"
         fi
     else
         echo -e "${RED}✗ 權限預覽失敗,請檢查 $SETTINGS_FILE 是否為合法 JSON${NC}"
