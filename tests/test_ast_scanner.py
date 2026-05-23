@@ -6,7 +6,6 @@ from pathlib import Path
 
 import ast_scanner
 
-
 # --------------------------------------------------------------------------- #
 # PackageUsageVisitor — visit_Import / visit_ImportFrom
 # --------------------------------------------------------------------------- #

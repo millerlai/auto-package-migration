@@ -62,6 +62,10 @@ target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 [tool.ruff]
 line-length = 100
 target-version = "py38"
+# Treat scripts shipped with the skill and root-level helpers as first-party
+# so isort groups `import dep_tree`, `import grant_permissions`, etc. correctly
+# in tests/ regardless of whether the package is installed editable in CI.
+src = ["package-upgrade/scripts", "."]
 
 [tool.ruff.lint]
 select = [
