@@ -5,13 +5,12 @@ Usage: python dep_tree.py <project_path> <package_name> [--pkg-manager pip|poetr
 Output: JSON with dependency classification and tree information
 """
 
-import subprocess
-import json
-import sys
-import re
 import argparse
+import json
+import re
+import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def get_dep_tree_pip(project_path: str) -> Dict[str, Any]:

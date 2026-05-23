@@ -20,11 +20,11 @@ particularly useful for packages that don't publish formal release notes
 
 from __future__ import annotations
 
-import sys
 import re
+import sys
+from typing import Optional
+
 import requests
-from typing import Optional, Tuple
-from urllib.parse import urlparse
 
 
 def fetch_from_pypi(package_name: str) -> Optional[tuple[str, str, str]]:

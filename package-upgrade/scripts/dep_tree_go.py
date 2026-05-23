@@ -72,7 +72,6 @@ import tempfile
 from collections import deque
 from pathlib import Path
 
-
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -195,7 +194,7 @@ def parse_gomod(path: str) -> dict:
 
     def parse_require_line(line: str) -> tuple[str, str, bool] | None:
         line = line.split("//")[0].rstrip()
-        is_indirect = "// indirect" in (line + " ")  # we stripped already
+        _is_indirect = "// indirect" in (line + " ")  # we stripped already
         # Better: check the original
         return line
 

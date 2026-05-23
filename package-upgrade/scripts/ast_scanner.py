@@ -9,7 +9,7 @@ import ast
 import json
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 class PackageUsageVisitor(ast.NodeVisitor):
@@ -108,7 +108,7 @@ def scan_file(filepath: Path, package_name: str) -> Optional[Dict[str, Any]]:
     try:
         source = filepath.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(filepath))
-    except (SyntaxError, UnicodeDecodeError) as e:
+    except (SyntaxError, UnicodeDecodeError):
         # Skip files with syntax errors or encoding issues
         return None
 
