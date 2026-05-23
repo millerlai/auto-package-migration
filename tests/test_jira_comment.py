@@ -38,9 +38,9 @@ class TestMarkdownToAdf:
         assert texts == ["para1", "para2"]
 
     def test_empty_blocks_are_skipped(self):
-        # "\n\n\n\n" → blocks: "", "", "" → all skipped → fallback
+        # "\n\n\n\n" → blocks: "", "", "" → all skipped
         doc = jira_comment.markdown_to_adf("\n\n\n\n")
-        # Fallback inserts a single paragraph with " " text
+        # Since the original markdown is non-empty, the fallback paragraph preserves it
         assert len(doc["content"]) == 1
         assert doc["content"][0]["content"][0]["text"] == "\n\n\n\n"
 
