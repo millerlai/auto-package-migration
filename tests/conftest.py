@@ -14,7 +14,8 @@ SCRIPTS_DIR = ROOT / "package-upgrade" / "scripts"
 
 # Order matters: scripts dir first so its modules win over any same-named
 # stdlib shadows; root second for grant_permissions.py at the repo root.
-for p in (SCRIPTS_DIR, ROOT):
+# Insert in reverse because each path is prepended at index 0.
+for p in (ROOT, SCRIPTS_DIR):
     sp = str(p)
     if sp not in sys.path:
         sys.path.insert(0, sp)
