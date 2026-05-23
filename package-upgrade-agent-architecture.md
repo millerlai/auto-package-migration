@@ -30,23 +30,33 @@
   
 - [ ] **LICENSE** — 授權條款 (建議 MIT)
 
-- [ ] **scripts/*.sh** — 所有 bash scripts
+- [ ] **scripts/*.sh** — 所有 bash scripts (含三軌的 `*_js.sh` / `*_go.sh`)
   - 已賦予執行權限 (`chmod +x`)
-  - 有錯誤處理 (exit on error)
+  - 有錯誤處理 (`set -euo pipefail`)
   - 有使用說明註解
   
-- [ ] **scripts/*.py** — 所有 Python scripts
+- [ ] **scripts/*.py** — Python scripts (含 jira_*.py、save_token、parse_pm_errors)
   - 已賦予執行權限 (`chmod +x`)
   - shebang 正確: `#!/usr/bin/env python3`
   - 有 docstring 和使用範例
 
+- [ ] **scripts/*.js / package.json** — JS helper scripts
+  - shebang 正確: `#!/usr/bin/env node`
+  - JS 依賴宣告在 `scripts/package.json`
+  - 安裝時跑 `npm install` (install.sh 已處理)
+
+- [ ] **scripts/*.go** — Go helper scripts (透過 `go run` 執行，免 build)
+
 ### 重要檔案 (Should Have)
 
-- [ ] **references/*.md** — 參考文件
-  - pip_workflow.md
-  - poetry_workflow.md
-  - uv_workflow.md
-  - breaking_change_patterns.md
+- [ ] **references/*.md** — 參考文件 (三軌 references)
+  - Python: pip_workflow / poetry_workflow / uv_workflow / PIP_LOCK_PATTERNS /
+    IMPORTANT_DEPENDENCY_UPDATE / breaking_change_patterns
+  - JS / TS: js_workflow / npm_workflow / yarn_workflow / js_ast_strategy /
+    breaking_change_patterns_js
+  - Go: go_workflow / go_major_version_paths / go_replace_semantics /
+    govulncheck / breaking_change_patterns_go
+  - 跨語言: jira_workflow / bdsa_mapping / auth_tokens
   
 - [ ] **templates/report_structure.md** — 報告結構指南
 
@@ -60,10 +70,10 @@
 
 ### 可選檔案 (Nice to Have)
 
-- [ ] **CHANGELOG.md** — 版本更新紀錄
-- [ ] **CONTRIBUTING.md** — 貢獻指南
+- [x] **CHANGELOG.md** — 版本更新紀錄 (已具備)
+- [x] **CONTRIBUTING.md** — 貢獻指南 (已具備)
+- [x] **tests/** — Skill 本身的測試 (pytest UT + GitHub Actions CI 已具備)
 - [ ] **examples/** — 使用範例專案
-- [ ] **tests/** — Skill 本身的測試
 
 ### 測試驗證
 
@@ -113,22 +123,79 @@ v2: 獨立 Python 應用                    v3: Claude Code Skill
 package-upgrade/
 ├── README.md                         # 📘 安裝與使用指南 (重要!)
 ├── SKILL.md                          # 主技能文件 — Claude Code 讀這個
+├── QUICK_REFERENCE.md                # Python / JS / Go 對照卡
 ├── LICENSE                           # 授權條款
 │
-├── scripts/
-│   ├── detect_env.sh                 # 偵測 pkg manager / python 版本
-│   ├── dep_tree.py                   # 解析依賴樹 → JSON
-│   ├── ast_scanner.py                # AST 掃描受影響的 import/symbol → JSON
-│   ├── fetch_changelog.py            # 抓 changelog 原文
-│   ├── git_diff.sh                   # Clone + diff 兩個版本 tag
-│   ├── run_tests.sh                  # 執行 pytest 並輸出結構化結果
-│   └── snapshot_env.sh               # 環境快照 / 回退
+├── scripts/                          # 三軌 helper：Python / JS / Go
+│   # ── 環境偵測 ────────────────────────────────
+│   ├── detect_env.sh                 # Python: pkg manager / lock 模式 / Python 版本
+│   ├── detect_env_js.sh              # JS / TS: npm / yarn 3 + pkg_manager_bin
+│   ├── detect_env_go.sh              # Go: go modules / vendor / go.work / replace
+│   # ── Pre-flight ─────────────────────────────
+│   ├── preflight.sh                  # Python / JS pre-flight 檢查
+│   ├── preflight_go.sh               # Go pre-flight
+│   # ── 依賴樹 ─────────────────────────────────
+│   ├── dep_tree.py                   # Python
+│   ├── dep_tree_js.js                # JS / TS
+│   ├── dep_tree_go.{sh,py}           # Go
+│   # ── AST 掃描 ───────────────────────────────
+│   ├── ast_scanner.py                # Python
+│   ├── ast_scanner_js.js             # JS / TS
+│   ├── ast_scanner_go.go             # Go (透過 go run 執行)
+│   # ── API surface diff ──────────────────────
+│   ├── api_surface_diff_js.js        # TypeScript .d.ts surface diff
+│   ├── api_surface_diff_go.sh        # Go apidiff
+│   # ── Vulnerability reachability ─────────────
+│   ├── govulncheck_go.sh             # Go govulncheck
+│   # ── Changelog / Git diff ──────────────────
+│   ├── fetch_changelog.py            # 通用 changelog 抓取
+│   ├── git_diff.sh                   # Python
+│   ├── git_diff_js.sh                # JS / TS
+│   ├── git_diff_go.sh                # Go
+│   # ── 測試 ───────────────────────────────────
+│   ├── run_tests.sh                  # Python (pytest / unittest)
+│   ├── run_tests_js.sh               # JS / TS (jest / vitest)
+│   ├── run_tests_go.sh               # Go (go test)
+│   # ── Snapshot / 回退 ────────────────────────
+│   ├── snapshot_env.sh               # Python
+│   ├── snapshot_env_js.sh            # JS / TS
+│   ├── snapshot_env_go.sh            # Go
+│   # ── Lock / mod 驗證 ───────────────────────
+│   ├── validate_lockfile.sh          # Python / JS lock 驗證
+│   ├── validate_modfile_go.sh        # Go go.mod / go.sum 驗證
+│   # ── Auth / Jira ──────────────────────────
+│   ├── save_token.sh                 # 寫入 auth token (chmod 600 + .gitignore)
+│   ├── jira_fetch.py                 # Jira REST fallback: 抓 ticket
+│   ├── jira_comment.py               # Jira REST fallback: post comment
+│   ├── jira_transition.py            # Jira REST fallback: list/apply transitions
+│   # ── 其他 ────────────────────────────────
+│   ├── parse_pm_errors.py            # 解析 pip/poetry/uv/npm/go 錯誤輸出
+│   └── package.json                  # JS helpers 自己的依賴宣告
 │
 ├── references/
-│   ├── pip_workflow.md               # pip 專用操作指南
-│   ├── poetry_workflow.md            # poetry 專用操作指南
-│   ├── uv_workflow.md                # uv 專用操作指南
-│   └── breaking_change_patterns.md   # 常見 breaking change 模式速查
+│   # Python
+│   ├── pip_workflow.md
+│   ├── poetry_workflow.md
+│   ├── uv_workflow.md
+│   ├── PIP_LOCK_PATTERNS.md
+│   ├── IMPORTANT_DEPENDENCY_UPDATE.md
+│   ├── breaking_change_patterns.md
+│   # JS / TS
+│   ├── js_workflow.md
+│   ├── npm_workflow.md
+│   ├── yarn_workflow.md
+│   ├── js_ast_strategy.md
+│   ├── breaking_change_patterns_js.md
+│   # Go
+│   ├── go_workflow.md
+│   ├── go_major_version_paths.md
+│   ├── go_replace_semantics.md
+│   ├── govulncheck.md
+│   ├── breaking_change_patterns_go.md
+│   # 跨語言
+│   ├── jira_workflow.md
+│   ├── bdsa_mapping.md
+│   └── auth_tokens.md
 │
 └── templates/
     └── report_structure.md           # 報告結構範本 (非填空模板)
@@ -142,12 +209,25 @@ package-upgrade/
 ---
 name: package-upgrade
 description: >
-  升級 Python 套件或修復 CVE 漏洞的完整工作流。當使用者提到
-  「升級 package」、「更新套件」、「fix CVE」、「修復漏洞」、
-  「package migration」、「dependency update」、「bump version」
+  升級 Python / JavaScript / TypeScript / Go 套件或修復 CVE 漏洞的完整工作流。
+  當使用者提到「升級 package」、「更新套件」、「fix CVE」、「修復漏洞」、
+  「package migration」、「dependency update」、「bump version」、
+  「升級 npm package」、「update axios / react / lodash」、「bump <pkg>」、
+  「升級 go module」、「update go.mod」、「go get upgrade」、
+  「govulncheck」、「v1 升 v2」、「major version upgrade」
   時觸發此 skill。也適用於使用者提供 CVE 編號 (如 CVE-2024-xxxxx)
-  並希望修復的場景。支援 pip、poetry、uv 三種套件管理工具，
-  自動偵測專案使用的工具。即使使用者只是隨口問「這個套件能不能升級」，
+  並希望修復的場景，以及提供 Atlassian Jira ticket URL
+  (如 https://trendmicro.atlassian.net/browse/V1E-148968) 或
+  Jira issue key (如 V1E-148968) — 此時會自動讀取 ticket 內容、
+  分析應升級的套件、完成後將報告 comment 回 ticket，並依目前 ticket
+  狀態提議推進 (To Do → Ready for Work → Development → Done)。
+  Python: 支援 pip、poetry、uv 三種套件管理工具。
+  JavaScript/TypeScript: 支援 npm + yarn 3 + TypeScript .d.ts API surface diff
+  (pnpm / bun 後續 stage)。
+  Go: 支援 go modules、major version path rewrite (v1→v2+)、apidiff API surface
+  diff、govulncheck reachability 分析、vendor mode、go.work workspace、
+  replace directives。
+  自動偵測專案使用的語言與工具。即使使用者只是隨口問「這個套件能不能升級」，
   也應觸發此 skill 來做完整分析。
 ---
 
@@ -155,8 +235,9 @@ description: >
 
 ## 概觀
 
-你是一位資深的 Python 套件遷移專家。當使用者要求升級套件或修復 CVE 時，
-按照以下工作流程逐步執行。你自己就是分析引擎 — 不需要呼叫外部 LLM API。
+你是一位資深的套件遷移專家，同時熟悉 Python、JavaScript / TypeScript 與 Go 生態。
+當使用者要求升級套件或修復 CVE 時，按照以下工作流程逐步執行。你自己就是分析引擎
+— 不需要呼叫外部 LLM API。
 
 關鍵原則:
 - **在修改任何專案內容之前，必須先建立新的 Git 分支** (Phase 5.1)
@@ -1136,6 +1217,12 @@ esac
 ## 6. README.md 設計
 
 > **這是讓其他人能夠順利安裝和使用此 Skill 的關鍵文件。**
+
+> ⚠️ **本節 (含下方所有 README 範例) 為 v1 (Python-only) 時期的設計快照。**
+> 真正出貨的 README 已擴充覆蓋 Python / JavaScript / TypeScript / Go 三軌
+> 與 Jira 觸發、Windows / Cygwin 安裝等，請以 repo 根目錄的 `README.md` /
+> `README.zh-TW.md` 與 `package-upgrade/README.md` 為準。
+> 以下範例僅保留作為「README 應包含哪些區塊」的結構參考。
 
 ```markdown
 # Package Upgrade / CVE Fix Skill for Claude Code

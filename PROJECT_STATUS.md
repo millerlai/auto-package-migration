@@ -1,48 +1,76 @@
 # 專案狀態總覽
 
+> 本檔案為高層次的成熟度快照。詳細的版本變更請見 `CHANGELOG.md`、
+> 工作原則與架構請見 `CLAUDE.md` / `package-upgrade-agent-architecture.md`。
+
+---
+
 ## ✅ 已完成
 
-### 核心功能 (100%)
+### 多語言支援 — Phase 0 偵測順序: **Go > JS > Python**
 
-- ✅ **Helper Scripts** (7/7)
-  - detect_env.sh - 環境偵測 (支援 pip lock 檢測)
-  - dep_tree.py - 依賴樹分析
-  - ast_scanner.py - AST 程式碼掃描
-  - fetch_changelog.py - Changelog 抓取
-  - git_diff.sh - Git diff 生成
-  - run_tests.sh - 測試執行
-  - snapshot_env.sh - 環境備份/回退
+| 語言 | 套件管理工具 | 進階能力 |
+|------|--------------|----------|
+| Python | pip (+ pip-tools / 自定義 lock)、poetry、uv | dep_tree 區分 direct / transitive、parent-bump 詢問 |
+| JavaScript / TypeScript | npm、yarn 3 (corepack) | TypeScript `.d.ts` API surface diff、transitive 優先 bump parent |
+| Go | go modules | major version path rewrite (v1 → v2+)、`apidiff` API surface diff、`govulncheck` reachability、vendor mode、`go.work`、`replace` directives |
 
-- ✅ **參考文件** (6/6)
-  - pip_workflow.md - Pip 操作指南
-  - poetry_workflow.md - Poetry 操作指南
-  - uv_workflow.md - UV 操作指南
-  - breaking_change_patterns.md - Breaking change 識別
-  - IMPORTANT_DEPENDENCY_UPDATE.md - 依賴更新規則
-  - PIP_LOCK_PATTERNS.md - Pip lock 模式
+### 核心 helper scripts
 
-- ✅ **核心文件** (3/3)
-  - SKILL.md - 完整 Phase 0-7 工作流程
-  - README.md - Skill 使用說明
-  - LICENSE - MIT 授權
+- ✅ **環境偵測**: `detect_env.sh` / `detect_env_js.sh` / `detect_env_go.sh`
+- ✅ **依賴樹**: `dep_tree.py` / `dep_tree_js.js` / `dep_tree_go.{sh,py}`
+- ✅ **AST 掃描**: `ast_scanner.py` / `ast_scanner_js.js` / `ast_scanner_go.go`
+- ✅ **API surface diff**: `api_surface_diff_js.js` (TypeScript `.d.ts`) / `api_surface_diff_go.sh` (apidiff)
+- ✅ **Vulnerability reachability**: `govulncheck_go.sh`
+- ✅ **Changelog 抓取**: `fetch_changelog.py`
+- ✅ **版本 diff**: `git_diff.sh` / `git_diff_js.sh` / `git_diff_go.sh`
+- ✅ **測試執行**: `run_tests.sh` / `run_tests_js.sh` / `run_tests_go.sh`
+- ✅ **環境 snapshot / 回退**: `snapshot_env.sh` / `snapshot_env_js.sh` / `snapshot_env_go.sh`
+- ✅ **Pre-flight checks**: `preflight.sh` / `preflight_go.sh`
+- ✅ **Lock / mod 驗證**: `validate_lockfile.sh` / `validate_modfile_go.sh`
+- ✅ **錯誤解析**: `parse_pm_errors.py`
+- ✅ **Auth token 寫入**: `save_token.sh` (chmod 600 + 自動加 `.gitignore`)
 
-- ✅ **使用者文件** (7/7)
-  - README.md - 專案總覽
-  - GETTING_STARTED.md - 快速上手
-  - INSTALLATION_GUIDE.md - 安裝指南
-  - VERIFICATION_CHECKLIST.md - 驗證檢查清單
-  - DEVELOPMENT.md - 開發指南
-  - CONTRIBUTING.md - 貢獻指南
-  - CHANGELOG.md - 版本記錄
+### Jira 整合
 
-- ✅ **工具腳本** (2/2)
-  - install.sh - 一鍵安裝
-  - verify_installation.sh - 自動驗證
+- ✅ MCP (Atlassian Rovo) 優先；fallback 到 REST + API token (`jira_fetch.py` / `jira_comment.py` / `jira_transition.py`)
+- ✅ SKILL.md Phase 1.C / 7.5 / 7.6 完整定義
+- ✅ Commit message + PR title 帶 `[ISSUE_KEY]`；PR body 第一行為 Jira URL
+- ✅ Comment 自動回 ticket，依目前狀態分階段詢問 transition
 
-- ✅ **專案配置** (3/3)
-  - pyproject.toml - UV 專案配置
-  - uv.lock - UV 鎖定檔案
-  - .gitignore - Git 忽略規則
+### CVE / BDSA / GHSA
+
+- ✅ CVE 編號觸發
+- ✅ BDSA 編號 (Black Duck) 對應到 CVE (`references/bdsa_mapping.md`)
+- ✅ GHSA (GitHub Security Advisory) 支援
+- ✅ Go 額外做 `govulncheck` reachability 分析
+
+### 安裝體驗
+
+- ✅ `install.sh` (POSIX) — 一鍵安裝；可選 `--project` / `--skip-permissions`
+- ✅ `install.bat` (Windows) — PowerShell / cmd 一鍵安裝
+- ✅ `install-cygwin64.sh` (Cygwin) — 附自動安裝 `gh` CLI
+- ✅ `grant_permissions.py` — 寫入 Claude Code `settings.json` 允許清單
+- ✅ gh CLI 偵測 + auth flow
+- ✅ JS helper 自動 `npm install`
+- ✅ `verify_installation.sh` — 自動驗證
+
+### 測試 / CI
+
+- ✅ **pytest UT suite** (`tests/`) — helper script 覆蓋
+- ✅ **GitHub Actions CI** — pytest + `ruff check .` 在 push / PR 都跑
+- ✅ **pre-commit hook** — 本地 commit 也跑 ruff
+
+### 文件
+
+- ✅ `README.md` / `README.zh-TW.md` — 英中雙版本，覆蓋三語言
+- ✅ `GETTING_STARTED.md` / `INSTALLATION_GUIDE.md` / `VERIFICATION_CHECKLIST.md` — 安裝與驗證
+- ✅ `DEVELOPMENT.md` / `CONTRIBUTING.md` — 開發者文件
+- ✅ `CLAUDE.md` — repo 層級的 Claude Code 指示
+- ✅ `package-upgrade/SKILL.md` — 主技能 Phase 0–7
+- ✅ `package-upgrade/QUICK_REFERENCE.md` — Python / JS / Go 三語言對照卡
+- ✅ Language references (各 5–6 份)：Python / JS / Go workflow、breaking_change_patterns、
+  Go major version paths、govulncheck、JS AST strategy、Jira workflow、BDSA mapping、auth tokens
 
 ---
 
@@ -50,118 +78,98 @@
 
 ### 1. 智能依賴更新
 
-✅ **正確處理各種套件管理工具**:
-- Pip: 檢測 pip-tools / 自定義 lock / 無 lock
-- Poetry: 使用 `poetry add` 同時更新 pyproject.toml 和 poetry.lock
-- UV: 使用 `uv add` 同時更新 pyproject.toml 和 uv.lock
+- **Python 對應工具**: poetry → `poetry add`，uv → `uv add`，pip → 編輯後安裝；
+  避免「只更新 lock，沒更新宣告檔」的陷阱
+- **Pip Lock 變體**: pip-tools / 自定義 `requirements.lock` / 無 lock 三種模式
+- **JS**: npm / yarn 3 corepack；`pkg_manager_bin` 解析確保不誤用全域 yarn
+- **Go**: minor / patch 用 `go get -u`；major 用 `/vN` path rewrite 自動產生
 
-✅ **Pip Lock 檔案支援**:
-- 自動檢測 requirements.in (pip-tools)
-- 自動檢測常見 lock 檔案
-- 詢問使用者確認 lock 產生方式
+### 2. Breaking Change 雙軌分析
 
-### 2. Breaking Change 分析
-
-✅ **雙軌分析**:
-- Changelog 解析 (PyPI / GitHub Releases)
-- Git Diff 分析 (版本 tags 之間)
-- 交叉驗證與合併結果
+- Changelog (PyPI / npm / GitHub Releases / repo CHANGELOG)
+- Git Diff (tag 對 tag 的原始碼 diff)
+- JS / TS 額外做 `.d.ts` API surface diff
+- Go 額外做 `apidiff`
+- 報告引用 source URL + commit SHA，reviewer 可直接驗證
 
 ### 3. 程式碼修改
 
-✅ **AST 靜態分析**:
-- 精確定位受影響程式碼
-- 理解上下文生成修改建議
-- 保持程式碼風格一致
+- AST 靜態分析定位受影響程式碼 (Python `ast` / JS Babel / Go `go/ast`)
+- 上下文感知，保持原有風格
+- 修改前 unified diff 預覽 + 使用者確認
 
 ### 4. 測試診斷
 
-✅ **三向交叉分析**:
-- 業務程式碼問題
-- 測試程式碼問題
-- 配置問題
-- 最多 3 次診斷迴圈
+- 分層執行 (受影響 → 全部)
+- 三向交叉分析：SOURCE_CODE / TEST_CODE / BOTH / CONFIG
+- 最多 3 次迴圈
 
-### 5. Git 整合
+### 5. Git / PR / Jira 整合
 
-✅ **完整 Git 工作流程**:
-- 自動建立 feature branch
-- 環境備份與回退
-- Conventional Commits message
-- 自動建立 Pull Request
+- 強制 feature branch
+- Conventional Commits + Jira-aware (`[ISSUE_KEY]` prefix)
+- 自動 PR (gh CLI)
+- Jira ticket 自動 comment + 詢問 transition
 
 ---
 
-## 📊 專案統計
+## 📊 專案統計 (快照)
 
-### 檔案數量
+### 檔案規模
 
-- **總檔案**: 30+
-- **Python Scripts**: 3 個 (dep_tree.py, ast_scanner.py, fetch_changelog.py)
-- **Bash Scripts**: 4 個 (detect_env.sh, git_diff.sh, run_tests.sh, snapshot_env.sh)
-- **Markdown 文件**: 20+ 個
-- **程式碼行數**: ~1,500 行 (scripts)
-- **文件行數**: ~3,000 行
+- **總 .md 文件**: 30+
+- **三語言 helper scripts**: ~30 個檔案 (Python / JS / Go 各約 8–10)
+- **跨語言 / 共用 helper**: ~7 個 (fetch_changelog、parse_pm_errors、save_token、jira_*)
+- **References**: ~17 份 (Python 6、JS 5、Go 5、跨語言 3)
+- **Tests**: pytest UT suite，CI 自動跑
 
 ### 支援範圍
 
-- **套件管理工具**: pip, poetry, uv (3/3)
-- **Pip 模式**: pip-tools, 自定義 lock, 無 lock (3/3)
-- **測試框架**: pytest, unittest (2/2)
-- **Python 版本**: 3.8+ (5 個版本)
-- **Git 平台**: GitHub (其他待擴展)
+- **Python**: pip、poetry、uv (3 工具) + pip-tools / 自定義 lock / 無 lock 變體 — Python 3.8+
+- **JavaScript / TypeScript**: npm、yarn 3 (2 工具) — Node.js 18+
+- **Go**: go modules — Go 1.21+；含 vendor、`go.work`、`replace`、major version rewrite
+- **測試框架**: pytest / unittest / jest / vitest / go test
+- **Git 平台**: GitHub (其他 issue tracker 待擴展)
+- **作業系統**: macOS / Linux / Windows (PowerShell 與 Cygwin)
 
 ---
 
-## 🚧 待完成項目
+## 🚧 待完成 / 規劃中
 
-### 高優先級
+### 高優先
 
-- [ ] **單元測試** (0%)
-  - tests/test_dep_tree.py
-  - tests/test_ast_scanner.py
-  - tests/test_fetch_changelog.py
-  - tests/fixtures/ (測試用專案)
+- [ ] **pnpm** / **bun** 支援 (繼 npm / yarn 3 之後)
+- [ ] **conda** / **pipenv** 支援
+- [ ] **Monorepo 結構支援**：Lerna / Nx / Turborepo / pnpm workspaces / go.work
+- [ ] 更多測試框架：Python (nose2 / tox)、JS (mocha / playwright)、Go (ginkgo)
 
-- [ ] **整合測試** (0%)
-  - 測試完整的 Phase 0-7 流程
-  - 使用真實專案測試
+### 中優先
 
-### 中優先級
+- [ ] 跨語言移植：Ruby (bundler) / Rust (cargo) / Java (maven / gradle)
+- [ ] JS / Python 的 reachability 分析 (參考 Go govulncheck 模式)
+- [ ] 整合更多 issue tracker：GitHub Issues / GitLab Issues / Linear
+- [ ] 改進三向診斷邏輯，自動偵測常見 mock / fixture 失敗 pattern
 
-- [ ] **錯誤處理改進** (60%)
-  - 改進錯誤訊息的可讀性
-  - 增加更多邊界情況處理
+### 低優先
 
-- [ ] **文件完善** (80%)
-  - 增加更多使用範例
-  - 增加 troubleshooting 案例
-  - 增加架構圖
-
-### 低優先級
-
-- [ ] **效能優化** (未開始)
-  - 平行處理 changelog 和 git diff
-  - 快取 PyPI API 結果
-
-- [ ] **擴展功能** (未開始)
-  - 支援 conda
-  - 支援 Node.js
-  - Web UI
+- [ ] Web UI 介面
+- [ ] VS Code 擴充套件整合
+- [ ] PyPI / npm / Go proxy 結果快取 (降低 web search 次數)
 
 ---
 
-## 🎉 近期更新
+## 🎉 近期重點更新
 
-### 最新變更 (2026-04-14)
+詳見 `CHANGELOG.md` `[Unreleased]` 段。重點：
 
-1. ✅ 移除 symlink 設計,簡化安裝
-2. ✅ 完整支援 pip lock 檔案 (會詢問使用者)
-3. ✅ 修正 poetry/uv 依賴更新流程
-4. ✅ 新增 5 個參考文件
-5. ✅ 專案本身改用 UV 管理依賴
-
-詳見: `CHANGELOG.md`
+1. ✅ **JavaScript / TypeScript 三軌** (#8) — npm + yarn 3 + `.d.ts` API surface diff
+2. ✅ **Go 三軌** (#7) — go modules、major version rewrite、apidiff、govulncheck
+3. ✅ **Jira ticket 觸發** — Phase 1.C / 7.5 / 7.6；MCP 優先 + REST fallback
+4. ✅ **Windows install.bat** (#11) 與 **Cygwin64 installer**
+5. ✅ **gh CLI 自動安裝 + auth flow** (#9)
+6. ✅ **pytest UT suite + CI** (#10)
+7. ✅ **pre-commit hook + ruff CI** (#12)
+8. ✅ **README.md / README.zh-TW.md 重寫** — 英中雙版本，覆蓋三語言
 
 ---
 
@@ -169,68 +177,74 @@
 
 ### 對於使用者
 
-1. **安裝**: `bash install.sh`
+1. **安裝**: `bash install.sh` (POSIX) / `install.bat` (Windows) / `bash install-cygwin64.sh`
 2. **驗證**: `bash verify_installation.sh`
-3. **使用**: `claude "升級 requests 到 2.32.0"`
+3. **使用**:
+   ```
+   claude "升級 requests 到 2.32.0"        # Python
+   claude "bump axios to 1.7.0"            # JS
+   claude "go get -u github.com/spf13/cobra@v1.8.0"  # Go
+   claude "V1E-148968"                      # Jira ticket
+   ```
 
 ### 對於開發者
 
-1. **設定環境**: `uv sync`
-2. **閱讀**: `DEVELOPMENT.md` 和 `CONTRIBUTING.md`
-3. **選擇任務**: 從「待完成項目」中選擇
+1. **設定環境**: `uv sync` + `cd package-upgrade/scripts && npm install`
+2. **閱讀**: `CLAUDE.md`、`DEVELOPMENT.md`、`CONTRIBUTING.md`
+3. **選擇任務**: 從上方「待完成」中選擇
 4. **開始貢獻**: 建立 PR
 
 ---
 
 ## 📈 專案成熟度
 
-| 面向 | 狀態 | 完成度 |
-|------|------|-------|
-| 核心功能 | ✅ 完成 | 100% |
-| Helper Scripts | ✅ 完成 | 100% |
-| 參考文件 | ✅ 完成 | 100% |
-| 使用者文件 | ✅ 完成 | 100% |
-| 安裝工具 | ✅ 完成 | 100% |
-| 單元測試 | ⚠️ 待開發 | 0% |
-| 整合測試 | ⚠️ 待開發 | 0% |
-| CI/CD | ⚠️ 待開發 | 0% |
-| 多語言支援 | ⚠️ 待開發 | 0% |
+| 面向 | 狀態 | 備註 |
+|------|------|------|
+| 核心功能 (Python) | ✅ | pip / poetry / uv 全支援，含 pip lock 變體 |
+| 核心功能 (JavaScript / TS) | ✅ | npm + yarn 3，含 .d.ts diff |
+| 核心功能 (Go) | ✅ | modules + major rewrite + govulncheck + apidiff |
+| Jira 整合 | ✅ | MCP + REST fallback，三階段 transition |
+| 安裝體驗 | ✅ | POSIX / Windows / Cygwin 三平台 |
+| 文件 | ✅ | 英中雙語 README + 三語言 references |
+| 單元測試 | ✅ | pytest UT + GitHub Actions CI |
+| Lint / Format | ✅ | ruff + black + pre-commit + CI |
+| 多套件管理工具 (pnpm / bun / conda) | ⚠️ | 規劃中 |
+| 跨語言 (Ruby / Rust / Java) | ⚠️ | 規劃中 |
 
-**總體成熟度**: Beta (可用於生產,但建議先在測試環境驗證)
+**總體成熟度**: 多語言 Beta，可用於生產。建議在新環境先跑 dry-run 熟悉流程。
 
 ---
 
 ## 🎯 版本規劃
 
-### v1.0.0 (Current)
-- ✅ 核心功能完整
-- ✅ 支援 pip/poetry/uv
-- ✅ 完整文件
-- ⚠️ 缺少自動化測試
+### v2.x (目前)
+- ✅ Python / JavaScript / TypeScript / Go 三軌
+- ✅ Jira ticket 觸發 + transition flow
+- ✅ Windows / Cygwin installer
+- ✅ pytest UT + ruff CI + pre-commit
 
-### v1.1.0 (Planned)
-- [ ] 加入單元測試
-- [ ] 加入整合測試
-- [ ] 改進錯誤處理
-- [ ] 增加更多範例
+### v2.1 (Planned)
+- [ ] pnpm / bun
+- [ ] conda / pipenv
+- [ ] Monorepo 結構支援
+- [ ] 更多測試框架
 
-### v2.0.0 (Future)
-- [ ] 支援 conda
-- [ ] 支援 Node.js
-- [ ] 支援多語言
+### v3.0 (Future)
+- [ ] Ruby / Rust / Java
+- [ ] JS / Python 的 reachability 分析
 - [ ] Web UI 介面
 
 ---
 
 ## 📝 總結
 
-**狀態**: ✅ 可以使用  
-**品質**: Beta  
-**文件**: 完整  
-**測試**: 需要補充  
+**狀態**: ✅ 可使用（生產 Beta）
+**品質**: 三軌穩定、CI 守門
+**文件**: 英中雙語、language-specific references 完整
+**測試**: pytest UT + CI 已就位，仍歡迎補 fixture 與 e2e
 
-**推薦操作**:
+**推薦操作**：
 1. 使用者 → 直接安裝使用
-2. 開發者 → 貢獻測試和功能擴展
+2. 開發者 → 貢獻 pnpm / monorepo / 跨語言移植
 
 歡迎貢獻! 🎊
