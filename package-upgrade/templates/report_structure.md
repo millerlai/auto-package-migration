@@ -213,6 +213,49 @@ Related to: BC-002
 
 ---
 
+### 5.5. Runtime Verification (僅 JS path 且 Step 0.5 抓了 baseline 時)
+
+**目的**: 證明升完後 web portal 仍能正常啟動，沒有產生 dev server crash / white screen
+/ console error 等只有實際跑起來才能抓到的 regression。
+
+**應包含**:
+- Tier (T1 / T2 / T3) 與啟動指令 / URL
+- Baseline vs Post-upgrade 的關鍵欄位對比 (boot_status / ready_time_ms / http_status / error 數)
+- Regression verdict (✅ / ⚠️ / ❌)
+- Logs / screenshots 路徑 (供 reviewer 自行驗證)
+- 若有 regression：對應 Phase 3 breaking change + 已修補 / 未解項目
+
+**範例**:
+```markdown
+## Runtime Verification
+
+- **Tier**: T2 (HTTP probe + Playwright headless chromium)
+- **Start cmd**: `npm run dev`
+- **URL**: http://localhost:3000
+- **Baseline**: boot=ready (4.2s), http=200, stderr_errors=0, console_errors=0
+- **Post-upgrade**: boot=ready (4.8s), http=200, stderr_errors=0, console_errors=0
+- **Verdict**: ✅ 無 regression
+- **Logs**: `.package-upgrade-cache/runtime-baseline.log` vs `runtime-post.log`
+- **Screenshots**: `.package-upgrade-cache/screenshot-baseline.png` vs `screenshot-post.png`
+```
+
+或 (有 regression)：
+```markdown
+## Runtime Verification
+
+- **Tier**: T1 (HTTP probe)
+- **Verdict**: ❌ 1 regression
+- **Detail**:
+  - **stderr_errors**: baseline 0 → post 1
+    - `Error: Cannot find module 'foo/sub/deep'` ← package `foo` 在 v2 把 `sub/deep`
+      改為內部 path，請改 import `foo` 公開 entry
+    - 對應 Phase 3 BC-002 (deep import 路徑變動)
+    - **已修補** in commit `abc1234`
+- **Logs**: `.package-upgrade-cache/runtime-baseline.log` vs `runtime-post.log`
+```
+
+---
+
 ### 6. 後續建議 (加分項)
 
 **目的**: 提供有價值的後續改進建議

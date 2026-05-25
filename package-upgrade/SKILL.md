@@ -263,6 +263,83 @@ chmod / gitignore 保護。
 - **poetry**: 使用 `poetry add pkg@version` (不是 `poetry update`)
 - **uv**: 使用 `uv add "pkg>=version"` (不是 `uv lock --upgrade-package`)
 
+### Step 0.5: (JS only) Runtime Verification Baseline (optional)
+
+**僅 `language == "javascript"` 時走這步**。Python / Go path 跳過。
+
+JS 升級最容易發生的問題不是 type error 或 unit test fail，而是 `npm run dev`
+一啟動就 white screen / module not found / runtime error — 這些**只有實際啟動
+server 才能抓到**。本步驟在**任何變更之前**抓 baseline，Step 6.6 升完後再跑
+一次做 diff，把「升級造成的」regression 跟「本來就有的雜訊」分開。
+
+**何時跳過 (Step 0.5 自身先做的判斷)**：
+
+讀 `references/runtime_verification_js.md` 的「Web app 偵測訊號」章節，根據
+`package.json#dependencies` + `scripts` 判斷：
+- 沒有 web framework dep (next/vite/react-scripts/vue/angular/nuxt/sveltekit/
+  remix/astro/express/fastify/...) 且沒有 `scripts.dev|start|serve` →
+  **library / CLI tool，直接跳過 Step 0.5 與 Step 6.6**，不需詢問使用者
+- 有任一訊號 → 進入下面的詢問流程
+
+**詢問使用者 (偵測到 web app 後)**：
+
+```
+偵測到此專案像是 web app (framework: {next}, dev script: "npm run dev" → http://localhost:3000)。
+
+升級 JS package 最常見的 regression 是 dev server 啟動後 white screen / runtime error，
+unit test 抓不到。建議在升級**前**先抓一份 baseline (約 30-60 秒)，升完後跑一次 diff。
+
+[1] 跑 baseline (推薦)
+[2] 跳過 runtime verification (只跑 unit test)
+[3] 自訂啟動指令 / port / URL 後跑 baseline
+```
+
+選 [1] → 用偵測到的 cmd / url 跑；選 [3] → 收使用者提供的字串再跑。
+
+**詢問是否啟用 T2 (headless browser)**：
+
+```
+T1 (預設) 用純 HTTP probe + stderr scan，抓套件 import 失敗、編譯失敗。
+T2 額外用 Playwright headless 開頁，抓 React runtime error / white screen / console error。
+T2 需先下載 chromium (~150MB，約 1-2 分鐘)。
+
+[1] 只跑 T1 (預設、輕量)
+[2] 加跑 T2 (高保真，首次需下載 chromium)
+[3] 我自己用瀏覽器看 (T3 fallback — 升前升後我會請你各確認一次)
+```
+
+選 [2] 時：先檢查 `node -e "require('playwright')"` 是否成功。若失敗，
+跑 `cd <project>/.package-upgrade-cache && npm init -y >/dev/null && npm install playwright --no-save && npx playwright install chromium`
+(或在 skill scripts 旁安裝，依使用者偏好；安裝完整 path 用 `NODE_PATH` 注入)。
+
+**跑 baseline**：
+
+```bash
+node scripts/runtime_verify_js.js <project_path> \
+    --mode baseline \
+    --start-cmd "<確認後的指令>" \
+    --url "<確認後的 URL>" \
+    --timeout 60 \
+    [--playwright]    # 僅當使用者選 T2
+```
+
+輸出寫 `<project>/.package-upgrade-cache/runtime-baseline.json` (LLM 自己負責落檔；
+腳本只 print 到 stdout，避免假設 cache 結構)。腳本會自動把 `.package-upgrade-cache/`
+加進專案 `.gitignore`。
+
+**baseline 結果處理**：
+
+- `boot_status: "ready"` + `http_status: 2xx/3xx` → 正常 baseline，繼續 Phase 1
+- `boot_status: "ready"` + `http_status: 5xx` → 警告使用者：「baseline 雖然 server
+  起得來但首頁回 500，升完後若 500 還在不算 regression」並繼續
+- `boot_status: "crashed"` / `"timeout"` → 詢問使用者：[1] 修好後重抓 baseline
+  [2] 仍記錄此 baseline 作對照 (升完後 server 反而起來 = 升級修好了既有問題) [3] 跳過
+- `boot_status: "port_conflict"` → 提醒使用者 kill 舊行程或改 port，重抓
+
+**T3 (使用者選 [3] 純人眼)**：本步只記錄一句「使用者承諾自己用瀏覽器看 baseline」
+到 session 狀態，**不啟動 server**。Step 6.6 升完後再請使用者在同一個瀏覽器頁面
+重新整理確認。
+
 ---
 
 ## Phase 1: 輸入解析
@@ -1783,6 +1860,59 @@ bash scripts/run_tests_go.sh <project_path> --all --race
 
 最大迴圈次數: 3 次。超過 3 次仍有失敗 → 停下來，把所有資訊報告給使用者。
 
+### Step 6.6: (JS only) Runtime Verification Post-Upgrade
+
+**僅當 Step 0.5 抓了 baseline (`.package-upgrade-cache/runtime-baseline.json` 存在) 時跑**。
+否則直接進 Phase 7。
+
+**重跑 verify**：用跟 baseline **完全相同的** start cmd / url / timeout / playwright flag：
+
+```bash
+node scripts/runtime_verify_js.js <project_path> \
+    --mode verify \
+    --start-cmd "<同 baseline>" \
+    --url "<同 baseline>" \
+    --timeout 60 \
+    [--playwright]
+```
+
+寫到 `<project>/.package-upgrade-cache/runtime-post.json`。
+
+**Diff 兩份 JSON** — 細節見 `references/runtime_verification_js.md` 的「Diff 策略」
+章節 (Bucket 1-6)。重點：
+
+- **不要** raw text diff；按欄位類別比對
+- 「新出現的 error 類型」直接歸因為本次升級
+- `boot_status` 退化矩陣 (ready→timeout/crashed = regression；crashed→ready = 修好了)
+- `http_status` 2xx→5xx 必修
+- T2 額外看 `console_errors` / `pageerror` / render broken (`dom_node_count` 暴跌)
+
+**有 regression 怎麼辦**：
+
+1. 把 regression 列出來給使用者看 (對照 Phase 3 breaking changes 嘗試歸因)
+2. 三類根因：
+   - `SOURCE_CODE` (Phase 4 漏掉的 import / API 使用) → 直接生成修補
+   - `BUILD_CONFIG` (vite/webpack/next config 在新版本不相容) → 解釋並提示使用者
+   - `RUNTIME_ENV` (peer dep / node version / env var 缺失) → 提示使用者
+3. 修補後**重跑 Step 6.6** (重抓 post.json + 重 diff)，最多 3 輪
+4. 三輪後仍有 regression → 停下來把完整 diff 給使用者，不要自作主張改 dependency 或退版本
+
+**T3 (人眼模式)**：請使用者重新整理同一個瀏覽器頁面，問：
+
+```
+請在你的瀏覽器重新整理 <url> (跟你 baseline 看的同一個頁面)。
+跟 baseline 比，有沒有：
+[1] 一切正常，沒有新錯誤
+[2] 有新的 console 錯誤 / 紅字 (請貼上錯誤訊息)
+[3] 畫面跑掉 / 元件不見 / white screen
+[4] 啟動就失敗，server 起不來
+```
+
+把使用者的回答記到 Phase 7.1 報告的 Runtime Regression 章節。
+
+**Screenshot diff (T2)**：兩張截圖路徑都記到報告裡。**不**做 pixel diff (太多偽陽性
+誤判)，只用 `dom_node_count` 暴跌 (post < baseline × 0.1) 當 white screen 訊號。
+
 ---
 
 ## Phase 7: 產出報告與 Commit Message
@@ -1859,6 +1989,26 @@ bash scripts/run_tests_go.sh <project_path> --all --race
     列舊路徑、新路徑、影響檔案數、改寫工具（gomajor 或 manual）、殘留掃描結果。
 11. **📦 Vendor / Replace 影響**（若 `is_vendored` 或 `has_replace_directives`）—
     說明 vendor diff 大小、保留的 replace directives
+
+**JS path 額外章節**（只在 `language == "javascript"` 且 Step 0.5 抓了 baseline 時加上）：
+
+9. **🖥️ Runtime Verification** — Step 0.5 / Step 6.6 的結果摘要，格式：
+
+   ```markdown
+   ### 🖥️ Runtime Verification
+
+   - **Tier**: T1 (HTTP probe) / T2 (T1 + Playwright headless) / T3 (manual)
+   - **Start cmd**: `npm run dev`
+   - **URL**: http://localhost:3000
+   - **Baseline**: boot=ready (4.2s), http=200, stderr_errors=0, console_errors=0 (T2)
+   - **Post-upgrade**: boot=ready (4.8s), http=200, stderr_errors=0, console_errors=0 (T2)
+   - **Verdict**: ✅ 無 regression / ⚠️ N 個 warning / ❌ M 個 regression
+   - **Logs**: `.package-upgrade-cache/runtime-{baseline,post}.log`
+   - **Screenshots** (T2): `.package-upgrade-cache/screenshot-{baseline,post}.png`
+   ```
+
+   有 regression 時，逐條列出對應 Phase 3 breaking change 與處理方式 (修補 commit、
+   或仍未解需 reviewer 注意的項目)。T3 模式則直接引用使用者人眼確認的回答。
 
 ### Step 7.2: Git Commit Message
 
