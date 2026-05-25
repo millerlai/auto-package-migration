@@ -41,6 +41,10 @@ node scripts/api_surface_diff_js.js <package> <old_version> <new_version>
   "old_version": "0.27.2",
   "new_version": "1.6.0",
   "strategy": "dts",
+  "old_strategy": "dts",
+  "new_strategy": "dts",
+  "confidence_score": 0.85,
+  "confidence_basis": "both versions ship .d.ts (gold-standard)",
   "old_source_label": "<temp>/old/extracted/package/index.d.ts",
   "new_source_label": "<temp>/new/extracted/package/index.d.ts",
   "removed": [{"name": "...", "kind": "...", "signature": "..."}],
@@ -51,6 +55,18 @@ node scripts/api_surface_diff_js.js <package> <old_version> <new_version>
   "errors": []
 }
 ```
+
+`confidence_score` 是**此單一來源（.d.ts/JS）的 baseline 信心**，Phase 3.3 合併三軌時
+以此為起點再上修：
+
+| `old_strategy` / `new_strategy` | baseline | 備註 |
+|---|---|---|
+| `dts` / `dts` | 0.85 | 與 SKILL.md「只 `.d.ts` 標 removed」基準對齊 |
+| `js` / `js` | 0.4 | runtime symbol 列舉，無 type 資訊 |
+| `dts` / `js` 或反向 | 0.3 | 版本間 type 缺漏，diff 雜訊高 |
+| 任一邊 `none` | 0.0 | 不可採信此軌 |
+
+`errors[]` 非空再 × 0.7，`warnings[]` 非空再 × 0.9。例：`dts/dts` + 1 warning → 0.77。
 
 ### LLM 的 Phase 3 任務（讀完輸出後）
 

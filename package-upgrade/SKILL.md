@@ -14,8 +14,9 @@ description: >
   分析應升級的套件、完成後將報告 comment 回 ticket，並依目前 ticket
   狀態提議推進 (To Do → Ready for Work → Development → Done)。
   Python: 支援 pip、poetry、uv 三種套件管理工具。
-  JavaScript/TypeScript: 支援 npm + yarn 3 + TypeScript .d.ts API surface diff
-  (pnpm / bun 後續 stage)。
+  JavaScript/TypeScript: 支援 npm、yarn (1 & 3 Berry)、pnpm、bun，含
+  TypeScript .d.ts API surface diff、workspace/monorepo 偵測、
+  @types/<pkg> 同步升級偵測。
   Go: 支援 go modules、major version path rewrite (v1→v2+)、apidiff API surface
   diff、govulncheck reachability 分析、vendor mode、go.work workspace、
   replace directives。
@@ -454,16 +455,26 @@ jira_context = {
 | `direct` | — | ⚠️ 詢問：哪個（些）workspace 是目標 |
 | `direct` (root only) | — | ✅ 繼續 |
 
-詢問模板：
+`dep_tree_js.js` 的 `workspace_info.locations` 已經告訴你 target 到底出現在哪些
+workspace（與哪個 dep 欄位）。詢問時直接帶入這份清單，**不要**讓使用者自己列。
+
+詢問模板（含實裝資料）：
 
 ```
-偵測到此 repo 是 workspace monorepo (`workspace_globs`: {...})。
+偵測到此 repo 是 workspace monorepo (workspaces 共 {len(workspaces)} 個)。
+{package} 目前出現在：
+  - packages/foo (dependencies, ^1.2.3)
+  - packages/bar (devDependencies, ^1.2.0)
+（其餘 N 個 workspace 沒有引用此套件，不會被改動）
+
 要將 {package} 升級套用到哪個範圍？
-
-[1] root workspace 的 package.json
-[2] 特定 workspace(s) — 列出後我會逐一升
-[3] 所有 workspaces (-W / --filter '*')
+[1] 上述全部命中的 workspaces — 一次升完
+[2] 指定其中一個或多個 — 我會逐一升
+[3] root workspace 的 package.json（只在 hoist 模式下有效）
 ```
+
+若 `workspace_info.locations` 為空但 `is_workspace_root: true`，代表此 monorepo 完全
+沒引用 target — 跳出並警告使用者輸入是否正確，不要往下做升級。
 
 ### Step 2.0.1: (Go only) `go.work` workspace 與 vendor mode 分流
 
@@ -526,6 +537,16 @@ Go 版透過 `go list -m -json all` + `go mod graph` 取得完整資訊。提供
 - `is_peer` (JS only): 是否為 `peerDependencies`
 - `declared_in` (JS only): `["dependencies", "devDependencies", ...]`
 - `full_tree`: 完整依賴子樹
+
+JS 額外輸出（供 Phase 2.0 與 Phase 5 使用）：
+- `workspace_info.is_workspace_root`: bool — 是否為 monorepo root
+- `workspace_info.workspaces`: 全部偵測到的 workspace list（`{workspace, name}`）
+- `workspace_info.locations`: target 出現在哪些 workspace（`{workspace, name, declared_in, constraint}`）
+  → Phase 2.0 用這個取代「全域 dep_tree」的範圍對話
+- `types_sibling.applicable`: bool — target 是否為 `@types/...`（若是則 false）
+- `types_sibling.sibling_name`: 對應 DefinitelyTyped 名稱（`@scope/x` → `@types/scope__x`）
+- `types_sibling.present`: bool — root manifest 或 lockfile 是否已含此 sibling
+- `types_sibling.recommendation`: 若 `present == true`，提示 Phase 5 一併升 sibling
 
 ### Step 2.2: 判斷升級路徑
 
@@ -899,7 +920,19 @@ node scripts/api_surface_diff_js.js <package_name> <old_version> <new_version>
 
 輸出 JSON 含 `removed` / `added` / `changed` / `deprecated_new`，以及
 `strategy`（`dts` / `js` / `mixed` / `none`）與 `old_source_label` / `new_source_label`
-標明資料來源。詳細策略與信心分數規則見 `references/js_ast_strategy.md`。
+標明資料來源。**`confidence_score` 欄位**（0.0~0.95）即此單一來源的 baseline 信心，
+規則如下（與 Step 3.3 對齊）：
+
+| 兩版策略 | baseline | 說明 |
+|---|---|---|
+| `dts/dts` | 0.85 | 雙方都有 .d.ts；API 宣告級別比對最可信 |
+| `mixed`（dts ↔ js） | 0.3 | 一邊有 type、一邊沒有，diff 雜訊高 |
+| `js/js` | 0.4 | 純 runtime symbol 枚舉，缺 type 資訊 |
+| `none` either side | 0.0 | 無法枚舉 — 不應採信本軌 |
+
+`errors[]` 非空再 × 0.7，`warnings[]` 非空再 × 0.9。Phase 3.3 合併其他軌時把
+`confidence_score` 當 baseline，再依交叉驗證調整。詳細策略見
+`references/js_ast_strategy.md`。
 
 **Go path**:
 
@@ -915,9 +948,9 @@ bash scripts/api_surface_diff_go.sh <module_path> <old_version> <new_version>
 `strategy == "none"` 表示 `apidiff` 沒裝或 module 下載失敗 — 走 Git Diff + Changelog
 雙軌降級。詳細策略見 `references/go_workflow.md` 與 `references/breaking_change_patterns_go.md`。
 
-**在 session 中保留** `api_surface_diff = {package, old, new, strategy, removed_count,
-changed_count, deprecated_new_count, source_old, source_new}`。Phase 7.1 報告必須
-新增一個小節「**🔧 API Surface Diff 來源**」引用這組數值。
+**在 session 中保留** `api_surface_diff = {package, old, new, strategy, confidence_score,
+removed_count, changed_count, deprecated_new_count, source_old, source_new}`。Phase 7.1
+報告必須新增一個小節「**🔧 API Surface Diff 來源**」引用這組數值（含 `confidence_score`）。
 
 若 `strategy == "none"`，不要硬要報告「沒有 breaking change」，改告知使用者並依靠
 Git Diff + Changelog 雙軌做判斷。
@@ -1496,14 +1529,25 @@ npm rebuild <package>
 
 **`@types/<pkg>` 同步升級** (TypeScript 專案)：
 
-升級主套件後，檢查 `package.json` 是否同時宣告 `@types/<pkg>` (例 `@types/lodash`)，
-若有則建議：
+不要自己 grep — Phase 2 的 `dep_tree_js.js` 已輸出 `types_sibling`，直接讀：
+
+- `types_sibling.applicable == false` → target 本身就是 `@types/...`，跳過此小節
+- `types_sibling.present == true` → 升級主套件後**必須**同步升 `types_sibling.sibling_name`
+- `types_sibling.present == false` → 不必處理（runtime 套件自帶 .d.ts 或專案是純 JS）
+
+升級命令（依 Phase 2 偵測到的 `pkg_manager`）：
 
 ```bash
-npm install @types/<pkg>@<matching-version> --save-dev --ignore-scripts
+# npm
+npm install <sibling_name>@<matching-version> --save-dev --ignore-scripts
+# yarn 3
+$PKG_MANAGER_BIN up <sibling_name>@<matching-version> --dev
+# pnpm
+pnpm add -D <sibling_name>@<matching-version>
 ```
 
-並把 `@types/<pkg>` 列入 Phase 7 報告的「相關套件」。
+並把 `types_sibling.sibling_name` 列入 Phase 7 報告的「相關套件」小節。
+版本對應策略：先試與 runtime 同 major，若 DefinitelyTyped 未發 latest 則退一個 patch。
 
 #### For Go (Go modules):
 
