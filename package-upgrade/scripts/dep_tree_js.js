@@ -375,6 +375,170 @@ function parseNpmLock(jsonStr) {
 }
 
 /* ============================================================
+ * Workspace / monorepo detection.
+ *
+ * Walks the root `workspaces` field (npm/yarn) or `pnpm-workspace.yaml`
+ * (pnpm). For each workspace, parses its package.json and reports
+ * whether `target` appears as a direct dep + which field.
+ *
+ * Output shape — one element per workspace where target appears:
+ *   { workspace: "packages/foo", name: "foo",
+ *     declared_in: ["dependencies", ...],
+ *     constraint: "^1.2.3" }
+ *
+ * Why this matters: in a monorepo Phase 2 must know "this pkg appears
+ * in workspaces A, B but NOT C" so the user is asked which to upgrade,
+ * and Phase 5 runs the package-manager command in the correct cwd.
+ * ============================================================ */
+
+function expandWorkspaceGlob(projectPath, pattern) {
+    // Supports: literal "packages/foo", single-star "packages/*",
+    // and recursive "packages/**". No regex / minimatch dep.
+    const norm = pattern.replace(/\\/g, '/').replace(/\/$/, '');
+    const recursive = /\/\*\*$/.test(norm);
+    const singleStar = !recursive && /\/\*$/.test(norm);
+    const baseRel = norm.replace(/\/\*\*?$/, '');
+    const baseAbs = path.join(projectPath, baseRel);
+
+    if (!recursive && !singleStar) {
+        return fs.existsSync(path.join(baseAbs, 'package.json')) ? [baseRel] : [];
+    }
+
+    const out = [];
+    function walk(dirAbs, dirRel, depth) {
+        let entries;
+        try {
+            entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+        } catch (_) { return; }
+        for (const ent of entries) {
+            if (!ent.isDirectory()) continue;
+            if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
+            const childAbs = path.join(dirAbs, ent.name);
+            const childRel = dirRel ? `${dirRel}/${ent.name}` : ent.name;
+            if (fs.existsSync(path.join(childAbs, 'package.json'))) {
+                out.push(childRel);
+            }
+            if (recursive && depth < 6) walk(childAbs, childRel, depth + 1);
+        }
+    }
+    if (fs.existsSync(baseAbs)) walk(baseAbs, baseRel, 0);
+    return out;
+}
+
+function readPnpmWorkspaceGlobs(projectPath) {
+    const fp = path.join(projectPath, 'pnpm-workspace.yaml');
+    if (!fs.existsSync(fp)) return [];
+    const text = fs.readFileSync(fp, 'utf8');
+    const out = [];
+    const lines = text.split('\n');
+    let inPackages = false;
+    for (const line of lines) {
+        if (/^packages:\s*$/.test(line.trim())) { inPackages = true; continue; }
+        if (inPackages) {
+            const m = /^\s*-\s*['"]?([^'"#]+?)['"]?\s*(?:#.*)?$/.exec(line);
+            if (m) out.push(m[1].trim());
+            else if (/^\S/.test(line)) break; // next top-level key
+        }
+    }
+    return out;
+}
+
+function detectWorkspaceLocations(projectPath, rootManifest, target) {
+    let globs = [];
+    if (Array.isArray(rootManifest.workspaces)) {
+        globs = rootManifest.workspaces;
+    } else if (rootManifest.workspaces && Array.isArray(rootManifest.workspaces.packages)) {
+        // yarn berry shape: { workspaces: { packages: [...] } }
+        globs = rootManifest.workspaces.packages;
+    } else {
+        globs = readPnpmWorkspaceGlobs(projectPath);
+    }
+    if (!globs.length) return { is_workspace_root: false, workspaces: [], locations: [] };
+
+    const wsPaths = new Set();
+    for (const g of globs) {
+        for (const rel of expandWorkspaceGlob(projectPath, g)) wsPaths.add(rel);
+    }
+
+    const locations = [];
+    const allWs = [];
+    for (const wsRel of wsPaths) {
+        const wsAbs = path.join(projectPath, wsRel);
+        const manifestPath = path.join(wsAbs, 'package.json');
+        let wsManifest;
+        try {
+            wsManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        } catch (_) { continue; }
+        allWs.push({ workspace: wsRel, name: wsManifest.name || wsRel });
+        const { declaredIn, declaredConstraint } = classifyDeclared(wsManifest, target);
+        if (declaredIn.length > 0) {
+            locations.push({
+                workspace: wsRel,
+                name: wsManifest.name || wsRel,
+                declared_in: declaredIn,
+                constraint: declaredConstraint,
+            });
+        }
+    }
+    return { is_workspace_root: true, workspaces: allWs, locations };
+}
+
+/* ============================================================
+ * @types/<pkg> sibling detection.
+ *
+ * In TS projects, runtime packages frequently ship without bundled
+ * types and rely on a DefinitelyTyped sibling at @types/<derived>.
+ * Bumping the runtime alone often drifts the types out of sync.
+ *
+ * Naming convention (DefinitelyTyped):
+ *   lodash       -> @types/lodash
+ *   @babel/core  -> @types/babel__core   (scope__name)
+ *   @types/...   -> no sibling
+ * ============================================================ */
+
+function deriveTypesSiblingName(target) {
+    if (target.startsWith('@types/')) return null;
+    if (target.startsWith('@')) {
+        const m = /^@([^/]+)\/(.+)$/.exec(target);
+        if (!m) return null;
+        return `@types/${m[1]}__${m[2]}`;
+    }
+    return `@types/${target}`;
+}
+
+function detectTypesSibling(rootManifest, target, parsedLockfile) {
+    const siblingName = deriveTypesSiblingName(target);
+    if (!siblingName) return { applicable: false };
+
+    // Check root manifest
+    const rootDecl = classifyDeclared(rootManifest, siblingName);
+
+    // Check lockfile for the sibling's installed version
+    let installedVersion = null;
+    if (parsedLockfile && parsedLockfile.entries) {
+        for (const entry of parsedLockfile.entries) {
+            if (entry.name === siblingName && entry.version) {
+                installedVersion = entry.version;
+                break;
+            }
+        }
+    }
+
+    const present = rootDecl.declaredIn.length > 0 || installedVersion !== null;
+    return {
+        applicable: true,
+        sibling_name: siblingName,
+        present,
+        declared_in_root: rootDecl.declaredIn,
+        root_constraint: rootDecl.declaredConstraint,
+        installed_version: installedVersion,
+        recommendation: present
+            ? `Bump ${siblingName} alongside ${target} — @types are commonly version-locked to the runtime package.`
+            : null,
+    };
+}
+
+/* ============================================================
  * Common collector: given the parsed lockfile, find every package
  * that lists `target` in its `dependencies`/`peerDependencies`.
  * ============================================================ */
@@ -708,6 +872,15 @@ function main() {
 
     if (declaredConstraint !== null) constraints.__declared__ = declaredConstraint;
 
+    // Workspace / monorepo detection — where does target appear across
+    // workspaces? Lets Phase 2 prompt the user with concrete locations
+    // and lets Phase 5 cd into the correct workspace before bumping.
+    const workspaceInfo = detectWorkspaceLocations(args.projectPath, manifest, args.packageName);
+
+    // @types/<pkg> sibling detection — TS projects commonly need to bump
+    // the DefinitelyTyped sibling alongside the runtime package.
+    const typesSibling = detectTypesSibling(manifest, args.packageName, parsedLockfile);
+
     // Recommend upgrade strategies in priority order (per user feedback:
     // prefer bumping the source-of-truth in package.json over hand-editing
     // the lockfile).
@@ -747,6 +920,10 @@ function main() {
         // NEW field — ranked upgrade strategies
         upgrade_strategies: upgradeStrategies,
         recommended_strategy: upgradeStrategies[0] ? upgradeStrategies[0].type : null,
+        // NEW field — workspace / monorepo location map
+        workspace_info: workspaceInfo,
+        // NEW field — @types/<pkg> DefinitelyTyped sibling
+        types_sibling: typesSibling,
         source,
         full_tree: fullTree,
         errors,

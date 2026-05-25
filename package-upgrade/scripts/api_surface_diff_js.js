@@ -260,6 +260,28 @@ function enumerateJsExports(jsPath) {
     return { exports: exported };
 }
 
+/* ---------- Confidence scoring ----------
+ *
+ * Baseline trust in THIS single source (the .d.ts / JS surface diff)
+ * before Phase 3 cross-validates against Git Diff + Changelog.
+ *
+ * Anchored to the scale documented in SKILL.md §Step 3.3:
+ *   - Only `.d.ts` showing a removal → 0.85 (declaration removal ≈ breaking)
+ *   - Only Git Diff but `.d.ts` clean → 0.5 (might be internal)
+ *
+ * So this script's `dts/dts` baseline matches the 0.85 anchor.
+ */
+function computeConfidence(oldStrategy, newStrategy, errors, warnings) {
+    let base;
+    if (oldStrategy === 'dts' && newStrategy === 'dts') base = 0.85;
+    else if (oldStrategy === 'js' && newStrategy === 'js') base = 0.4;
+    else if (oldStrategy === 'none' || newStrategy === 'none') base = 0.0;
+    else base = 0.3; // mixed (dts on one side, js on the other) — noisy
+    if (errors && errors.length > 0)   base *= 0.7;
+    if (warnings && warnings.length > 0) base *= 0.9;
+    return Math.round(base * 100) / 100;
+}
+
 /* ---------- Diff ---------- */
 
 function diffExports(oldExports, newExports) {
@@ -364,11 +386,24 @@ function main() {
     const { removed, added, changed, deprecated_new } =
         diffExports(oldSurface.exports || {}, newSurface.exports || {});
 
+    const confidence = computeConfidence(
+        oldSurface.strategy, newSurface.strategy, errors, warnings);
+
     process.stdout.write(JSON.stringify({
         package_name: packageName,
         old_version: oldVer,
         new_version: newVer,
         strategy: oldSurface.strategy === newSurface.strategy ? oldSurface.strategy : 'mixed',
+        old_strategy: oldSurface.strategy,
+        new_strategy: newSurface.strategy,
+        confidence_score: confidence,
+        confidence_basis: oldSurface.strategy === 'dts' && newSurface.strategy === 'dts'
+            ? 'both versions ship .d.ts (gold-standard)'
+            : oldSurface.strategy === 'js' && newSurface.strategy === 'js'
+                ? 'no .d.ts on either side; runtime export enumeration only (no type info)'
+                : oldSurface.strategy === 'none' || newSurface.strategy === 'none'
+                    ? 'could not enumerate exports for one or both versions'
+                    : 'strategy mismatch (.d.ts vs JS) across versions — diff is noisy',
         old_source_label: oldSurface.source,
         new_source_label: newSurface.source,
         removed,
