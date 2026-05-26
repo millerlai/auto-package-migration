@@ -10,14 +10,14 @@
 
 | 子任務 | 狀態 | 分支 / 備註 |
 |--------|------|-------------|
-| 1.1 `detect_env.sh` Python 補欄位 | ✅ 完成 | `feat/schema-alignment`：加 `language` / `pkg_manager_bin` / `custom_registries`（pyproject.toml + pip.conf）/ `env_var_placeholders` / `git_remote_host` / `memory_hints` |
-| 1.2 `ast_scanner` 加 `verdict` | ✅ 完成 | `feat/schema-alignment`：Python + JS scanner 加 `verdict` / `verdict_reason` / `files_scanned` / `import_count` / `usage_count` / `warnings`，與 `ast_scanner_go.go` 對齊 |
+| 1.1 `detect_env.sh` Python 補欄位 | ✅ 完成 | `feat/schema-alignment` (cb07300)：加 `language` / `pkg_manager_bin` / `custom_registries`（pyproject.toml + pip.conf）/ `env_var_placeholders` / `git_remote_host` / `memory_hints` |
+| 1.2 `ast_scanner` 加 `verdict` | ✅ 完成 | `feat/schema-alignment` (cb07300)：Python + JS scanner 加 `verdict` / `verdict_reason` / `files_scanned` / `import_count` / `usage_count` / `warnings`，與 `ast_scanner_go.go` 對齊 |
 | 1.3 `api_surface_diff` confidence 統一 | ⬜ 未開始 | 依執行順序，等任務 3 補測試後再做 |
 | 2.1 `runtime_verification_{py,go}.md` | ⬜ 未開始 | — |
 | 2.2 `python_override_semantics.md` + `js_override_semantics.md` | ⬜ 未開始 | — |
 | 2.3 `breaking_change_patterns_py.md` | ⬜ 未開始 | — |
-| 3.1 JS helper 加 pytest | ⬜ 未開始 | — |
-| 3.2 Go helper 加 pytest | ⬜ 未開始 | — |
+| 3.1 JS helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_js.py` (8 tests, all pass) + `test_detect_env_js.py` (5 pass, 1 skip on Windows)。`test_dep_tree_js.py` + `test_api_surface_diff_js.py` 留下個 PR。 |
+| 3.2 Go helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_go.py` (7 tests) + `test_detect_env_go.py` (5 tests)。本地無 Go 全 skip；CI 會跑。`test_api_surface_diff_go.py` 留下個 PR。 |
 | 3.3 共用 bash helper 煙霧測試 | ⬜ 未開始 | — |
 | 4.1 `pnpm_workflow.md` | ⬜ 未開始 | — |
 | 4.2 `dep_tree_js.js` 支援 pnpm | ⬜ 未開始 | — |
@@ -26,6 +26,26 @@
 
 **已知瑕疵（非本 PR 引入，記在這裡待後續處理）**：
 - `detect_env.sh:12` 的 `grep -P` 在 Windows MSYS 環境會印 locale warning 到 stderr，造成 `python_version` 抓不到。原版即存在，未動。
+- `detect_env_js.sh` 的 missing-`package.json` 錯誤訊息把 `$PROJECT_PATH` 直接 inline 進 JSON，Windows backslash 路徑（如 `C:\Users\...`）會產生無效的 JSON escape（`\U` / `\T` 等）。POSIX 不受影響。`test_detect_env_js.py::test_missing_package_json_errors` 在 Windows 上 skip。修法：改用 `jq -Rs` 編碼路徑。
+- `detect_env_js.sh:287-292` 原本有 bash syntax error（pipe 跳行）導致整支 script parse 失敗。在 `test/js-go-helper-pytest` 補測試時發現並修復。
+
+---
+
+## Branch merge order
+
+待 PR review 後依下表順序 merge 回 master。後序分支基於前序分支 branch，merge 順序顛倒會造成 conflict。
+
+| # | Branch | 依賴 | 內容 |
+|---|--------|------|------|
+| 1 | `feat/schema-alignment` | master | 任務 1.1 + 1.2（schema 對齊基礎） |
+| 2 | `test/js-go-helper-pytest` | #1 | 任務 3.1 + 3.2 部分完成（守 #1 新增的 schema 欄位）+ `detect_env_js.sh` syntax fix + CI 加 Node/Go toolchain |
+| 3 | `docs/multi-lang-references` *(規劃中)* | master 或 #1 | 任務 2.1 / 2.2 / 2.3（純文件，零回歸風險，可平行） |
+| 4 | `test/dep-tree-api-surface-pytest` *(規劃中)* | #2 | 任務 3.1 / 3.2 補完（`test_dep_tree_js`、`test_api_surface_diff_*`） |
+| 5 | `feat/api-surface-confidence` *(規劃中)* | #4 | 任務 1.3（confidence 統一，需要 #4 的測試守門） |
+| 6 | `test/bash-helper-smoke` *(規劃中)* | #5 | 任務 3.3（剩餘 bash helper 煙霧測試） |
+| 7 | `feat/pnpm-support` *(規劃中)* | #6 | 任務 4（pnpm 完整支援，最大塊獨立工作） |
+
+#3 可與 #2 / #4 / #5 平行處理，因為只動 `references/*.md`。其餘必須依序 merge。
 
 ---
 
