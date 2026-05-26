@@ -148,10 +148,28 @@ bash scripts/detect_env_go.sh <project_path>
 **停下來告訴使用者先 migrate 到 Go modules**（`go mod init <path> && go mod tidy`），
 然後重跑 skill。此 skill **不處理** legacy 工具升級。
 
-### Step 0.3: Pre-flight checks（JS / Go path 必跑）
+### Step 0.3: Pre-flight checks（三條路徑都必跑）
 
-**JS / Go path 在 Phase 1 之前必須跑 pre-flight**，把所有可能 block 的環境問題一次列出。
-別像 IMPROVEMENTS #1/#2/#3 那樣跑到 Phase 5 才撞牆。
+**Phase 1 之前必須跑 pre-flight**，把所有可能 block 的環境問題一次列出。
+別像 IMPROVEMENTS #1/#2/#3 那樣跑到 Phase 5 才撞牆。三支腳本輸出 schema 對齊
+（`blockers` / `warnings` / `ok` / `summary` / `env`），LLM 可以同一套邏輯處理。
+
+**Python path**:
+
+```bash
+bash scripts/preflight_py.sh <project_path>
+```
+
+腳本會自動 source `<project>/.env.pip` / `.env.poetry` / `.env.uv` / `.env.pypi` /
+`.env.jfrog`（若存在），所以前一次 session 持久化的 token 不需要重新提供。檢查：
+1. `python3` 在 PATH 且版本可解析
+2. 偵測到的 pkg_manager binary（pip / poetry / uv）在 PATH
+3. `requirements.in` 存在時 `pip-compile` 可用
+4. virtualenv 是否啟用（`VIRTUAL_ENV` / `CONDA_PREFIX` / `.venv/` / `venv/`）
+5. `pyproject.toml` / `pip.conf` / `poetry.toml` 中 `${ENV_VAR}` 引用是否都已設定
+6. `gh` CLI 對 `git_remote_host` 是否已認證
+7. git working tree 是否乾淨
+8. 偵測到的 pip lock file（informational）
 
 **JS path**:
 
@@ -409,6 +427,29 @@ LLM 推理流程，但在 Phase 7.1 報告中標明缺少 reachability 分析。
 
 詳見 `references/govulncheck.md`。
 
+**Python path 額外步驟（pip-audit reachability）**:
+
+若 `language == "python"` 且 `pip-audit` 可用（pre-flight 會偵測），**在 grep 風險
+評估之前**先跑：
+
+```bash
+bash scripts/pip_audit_py.sh <project_path> --cve <CVE-ID>
+```
+
+輸出 schema 對齊 govulncheck_go.sh，含 `match` 欄位（`called` / `imported` /
+`not_present`）。Python 沒有原生 call graph，腳本以「`pip-audit` 列出脆弱套件 +
+從 advisory 文字抽取符號名 + `ast_scanner.py` 找實際使用點」近似 reachability：
+
+- `called` — source code 真的用到 advisory 提到的 symbol → **critical**
+- `imported` — 有 import 但 advisory 的 symbol 沒在 usages 出現 → **medium**
+- `not_present` — dep 完全沒被 import → **告知使用者不影響**
+
+精度低於 Go (Python 動態本質)，但仍能把純 transitive 噪音篩掉。`extracted_symbols`
+與 `import_names` 都列出來，方便 LLM 在報告中說明 reachability 推論依據。
+
+**`pip-audit` 未安裝時**: 告知使用者降級為 grep-only 模式，並建議
+`pip install pip-audit` 後重跑。
+
 ### 情況 C: 使用者提供 Jira URL 或 Jira ID
 
 範例輸入:
@@ -588,8 +629,18 @@ vendor 目錄，PR diff 行數會顯著增加」。
 **若 `language == "python"`**：
 
 ```bash
-python scripts/dep_tree.py <project_path> <package_name>
+python scripts/dep_tree.py <project_path> <package_name> \
+    [--target-version <v>] [--no-probe]
 ```
+
+`--target-version` 與 `--no-probe` 為選用。提供 `--target-version` 時，腳本會對
+每個 direct parent 呼叫 PyPI JSON API 取 `info.requires_dist`，分類為
+`satisfies` / `would_not_help_pin` / `no_dep` / `unknown`，並把每條候選策略
+（`direct_bump` / `lock_only` / `bump_parent` per parent / `bump_parent_then_target`）
+依 confidence 排序輸出在 `upgrade_strategies[]`，第一名同步寫到
+`recommended_strategy`。未提供 target_version 時 parent_analyses 為空，策略 fallback
+為僅依 `dependency_type` 判斷。schema 對齊 `dep_tree_go.py` 的 `parent_analyses` /
+`upgrade_strategies`，Phase 2.2 可直接用同一套渲染邏輯。
 
 **若 `language == "javascript"`**（lockfile-first，**不需要 node_modules**）：
 
@@ -995,9 +1046,10 @@ Phase 5.3 走對應的 lock-only 命令 (見 Phase 5.3 的「Transitive: lock-on
 > - JavaScript: Changelog + Git Diff + `.d.ts` API Surface Diff（**三軌**）
 > - Go: Changelog + Git Diff + `apidiff` API Surface Diff（**三軌**）
 
-### Step 3.0: API Surface Diff（JS / Go 專用）
+### Step 3.0: API Surface Diff（三條路徑都有，Python 較弱）
 
-僅當 `language == "javascript"` 或 `"go"` 時執行。
+三條路徑都可跑 API surface diff 當作 Phase 3 的第三軌（除 changelog + git diff
+外的額外結構性訊號）。Python 因動態語言本質，精度低於 JS / Go。
 
 **JS path**:
 
@@ -1034,6 +1086,28 @@ bash scripts/api_surface_diff_go.sh <module_path> <old_version> <new_version>
 
 `strategy == "none"` 表示 `apidiff` 沒裝或 module 下載失敗 — 走 Git Diff + Changelog
 雙軌降級。詳細策略見 `references/go_workflow.md` 與 `references/breaking_change_patterns_go.md`。
+
+**Python path**:
+
+```bash
+bash scripts/api_surface_diff_py.sh <package_name> <old_version> <new_version>
+```
+
+輸出 schema 與 JS / Go 對齊（`removed` / `added` / `changed` / `deprecated_new`
++ `strategy` + `confidence_score`）。`changed` 條目 `category` 為
+`signature_change` / `kind_change` / `type_change` / `incompatible_other`。
+`deprecated_new` 透過 `@deprecated` decorator 或 docstring `.. deprecated::`
+標記偵測。
+
+| 兩版策略 | baseline | 說明 |
+|---|---|---|
+| `griffe` | 0.65 | griffe 載入成功 — Python 動態本質導致精度上限低於 Go apidiff 的 0.9 |
+| `none` | 0.0 | griffe 未安裝或 pip install 失敗 — 不採信本軌 |
+
+`errors[]` 非空時降至 0.5。腳本以 `pip install --target` (或 `uv pip install`
+fallback) 將兩版本裝到 temp dir，griffe 載入後 walk 全樹建立 `{path: signature}`
+flat map 做集合差集。**前提條件**：`griffe` 套件已安裝（`pip install griffe`）。
+未裝時降級走 Changelog + Git Diff 雙軌。
 
 **在 session 中保留** `api_surface_diff = {package, old, new, strategy, confidence_score,
 removed_count, changed_count, deprecated_new_count, source_old, source_new}`。Phase 7.1
@@ -1707,7 +1781,23 @@ go mod verify
 - uv: `pyproject.toml` (檢查 `dependencies` 列表) 和 `uv.lock`
 - npm: `package.json` (檢查 `dependencies` / `devDependencies` / `peerDependencies`) 和 `package-lock.json`
 
-### Step 5.4: Post-edit 離線驗證（JS / Go）
+### Step 5.4: Post-edit 離線驗證（三條路徑都應跑）
+
+**Python path** — Phase 5.3 結束後**一律跑**：
+
+```bash
+bash scripts/validate_lock_python.sh <project_path> [--upgrade-strategy <name>]
+```
+
+依偵測到的 pkg_manager 跑對應的 lock 一致性檢查：
+- uv:        `uv lock --check`
+- poetry:    `poetry check --lock` (1.7+) 或 `poetry lock --check` (1.4-1.6)
+- pip-tools: `pip-compile --dry-run -o <tmp> requirements.in` 並 diff `requirements.txt`
+- pip (raw): `pip install --dry-run -r requirements.txt`（pip 23+）或 `pip check`
+
+當 Phase 2 的 `recommended_strategy == "lock_only"` 時，**必須**同時傳 `--upgrade-strategy
+lock_only`，腳本會額外 `git diff` 檢查 `pyproject.toml` / `requirements.in` 是否
+誤動 — lock-only 路徑不可動 manifest（見 `references/IMPORTANT_DEPENDENCY_UPDATE.md`）。
 
 **JS path** — 只要走過「手動編輯 lockfile」這條 fallback 路徑（preflight 缺 auth token、
 或 Phase 2 走 yarn `set resolution` 後手動補 lockfile），完工後**必跑**：
