@@ -606,8 +606,18 @@ vendor 目錄，PR diff 行數會顯著增加」。
 **若 `language == "python"`**：
 
 ```bash
-python scripts/dep_tree.py <project_path> <package_name>
+python scripts/dep_tree.py <project_path> <package_name> \
+    [--target-version <v>] [--no-probe]
 ```
+
+`--target-version` 與 `--no-probe` 為選用。提供 `--target-version` 時，腳本會對
+每個 direct parent 呼叫 PyPI JSON API 取 `info.requires_dist`，分類為
+`satisfies` / `would_not_help_pin` / `no_dep` / `unknown`，並把每條候選策略
+（`direct_bump` / `lock_only` / `bump_parent` per parent / `bump_parent_then_target`）
+依 confidence 排序輸出在 `upgrade_strategies[]`，第一名同步寫到
+`recommended_strategy`。未提供 target_version 時 parent_analyses 為空，策略 fallback
+為僅依 `dependency_type` 判斷。schema 對齊 `dep_tree_go.py` 的 `parent_analyses` /
+`upgrade_strategies`，Phase 2.2 可直接用同一套渲染邏輯。
 
 **若 `language == "javascript"`**（lockfile-first，**不需要 node_modules**）：
 
