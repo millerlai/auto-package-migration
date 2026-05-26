@@ -2448,6 +2448,18 @@ python scripts/jira_transition.py apply <site> <issue_key> <transition_id> [reso
 4. **若有 jira_context**: comment URL 和最終 ticket status
 5. 回退命令 (以防需要)
 
+### Step 7.8: 邀請使用者回饋
+
+最後，**邀請一次** (不要催)，讓使用者知道有 feedback channel：
+
+> 如果這次跑下來有遇到不順、判斷錯誤、或想到可以改進的地方，
+> 歡迎輸入 `/package-upgrade-feedback` 把回饋送出，會自動 sanitize 後
+> 開成 GitHub Issue (不會送出任何 token / 絕對路徑 / Jira key)。
+
+**不要** 主動產出 IMPROVEMENT.md 或寫任何檔案 — 由 feedback skill 互動式收集即可。
+**不要** 引導使用者去回顧每個 Phase 的問題 — 主 skill 在 Phase 7.7 已經結束工作，
+這只是一行 hint。
+
 ---
 
 ## 錯誤處理

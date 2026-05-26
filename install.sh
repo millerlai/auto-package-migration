@@ -25,8 +25,12 @@ for arg in "$@"; do
             cat <<EOF
 Usage: bash install.sh [--global|--project] [--skip-permissions]
 
-  --global              Install to ~/.claude/skills/package-upgrade (default)
-  --project             Install to ./.claude/skills/package-upgrade
+Installs two skills:
+  - package-upgrade           (main upgrade workflow)
+  - package-upgrade-feedback  (collect feedback → open GitHub Issue)
+
+  --global              Install to ~/.claude/skills/ (default)
+  --project             Install to ./.claude/skills/
   --skip-permissions    Don't offer to write the recommended Claude Code
                         permissions into settings.json
 EOF
@@ -40,24 +44,33 @@ echo "Package Upgrade Skill 安裝程式"
 echo -e "==========================================${NC}"
 echo ""
 
-# 檢查是否在專案根目錄
-if [ ! -d "package-upgrade" ]; then
-    echo -e "${RED}錯誤: 請在專案根目錄執行此腳本${NC}"
-    echo "目前路徑: $(pwd)"
-    echo "預期看到: package-upgrade/ 目錄"
-    exit 1
-fi
+# Skills to install (source dir → installed name).
+# Both share the same target root: ~/.claude/skills/ or ./.claude/skills/
+SKILLS=("package-upgrade" "package-upgrade-feedback")
 
-# 安裝目標
+# 檢查是否在專案根目錄
+for skill in "${SKILLS[@]}"; do
+    if [ ! -d "$skill" ]; then
+        echo -e "${RED}錯誤: 請在專案根目錄執行此腳本${NC}"
+        echo "目前路徑: $(pwd)"
+        echo "預期看到: $skill/ 目錄"
+        exit 1
+    fi
+done
+
+# 安裝目標 (根目錄,個別 skill 路徑在迴圈中組出)
 if [ "$MODE" = "global" ]; then
-    TARGET_DIR="$HOME/.claude/skills/package-upgrade"
+    SKILLS_ROOT="$HOME/.claude/skills"
     echo -e "${GREEN}安裝模式: 全域安裝${NC}"
-    echo "安裝位置: $TARGET_DIR"
 else
-    TARGET_DIR="./.claude/skills/package-upgrade"
+    SKILLS_ROOT="./.claude/skills"
     echo -e "${GREEN}安裝模式: 專案級安裝${NC}"
-    echo "安裝位置: $TARGET_DIR"
 fi
+echo "安裝位置: $SKILLS_ROOT/{${SKILLS[0]},${SKILLS[1]}}"
+# package-upgrade is the heavy one with helper scripts/deps; downstream steps
+# (Python/Node deps, verify, etc.) only run against it. The feedback skill
+# is pure bash/python stdlib so it just needs file copy + chmod.
+TARGET_DIR="$SKILLS_ROOT/package-upgrade"
 
 echo ""
 read -p "繼續安裝? (y/N) " -n 1 -r
@@ -70,31 +83,50 @@ fi
 # 建立目標目錄
 echo ""
 echo -e "${BLUE}步驟 1/8: 建立目錄${NC}"
-mkdir -p "$(dirname "$TARGET_DIR")"
+mkdir -p "$SKILLS_ROOT"
 
-if [ -d "$TARGET_DIR" ]; then
-    echo -e "${YELLOW}警告: 目標目錄已存在,將會覆蓋${NC}"
+OVERWRITE_NEEDED="false"
+for skill in "${SKILLS[@]}"; do
+    if [ -d "$SKILLS_ROOT/$skill" ]; then
+        OVERWRITE_NEEDED="true"
+        break
+    fi
+done
+
+if [ "$OVERWRITE_NEEDED" = "true" ]; then
+    echo -e "${YELLOW}警告: 下列 skill 目錄已存在,將會覆蓋${NC}"
+    for skill in "${SKILLS[@]}"; do
+        [ -d "$SKILLS_ROOT/$skill" ] && echo "  - $SKILLS_ROOT/$skill"
+    done
     read -p "確定要覆蓋嗎? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "安裝已取消"
         exit 0
     fi
-    rm -rf "$TARGET_DIR"
+    for skill in "${SKILLS[@]}"; do
+        rm -rf "$SKILLS_ROOT/$skill"
+    done
 fi
 
 # 複製檔案
 echo ""
 echo -e "${BLUE}步驟 2/8: 複製檔案${NC}"
-cp -r package-upgrade "$TARGET_DIR"
-echo -e "${GREEN}✓ 檔案已複製${NC}"
+for skill in "${SKILLS[@]}"; do
+    cp -r "$skill" "$SKILLS_ROOT/$skill"
+    echo -e "${GREEN}✓ $skill 已複製到 $SKILLS_ROOT/$skill${NC}"
+done
 
 # 設定執行權限
 echo ""
 echo -e "${BLUE}步驟 3/8: 設定執行權限${NC}"
-chmod +x "$TARGET_DIR"/scripts/*.sh
-chmod +x "$TARGET_DIR"/scripts/*.py
-chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
+for skill in "${SKILLS[@]}"; do
+    SKILL_PATH="$SKILLS_ROOT/$skill"
+    [ -d "$SKILL_PATH/scripts" ] || continue
+    chmod +x "$SKILL_PATH"/scripts/*.sh 2>/dev/null || true
+    chmod +x "$SKILL_PATH"/scripts/*.py 2>/dev/null || true
+    chmod +x "$SKILL_PATH"/scripts/*.js 2>/dev/null || true
+done
 echo -e "${GREEN}✓ 執行權限已設定${NC}"
 
 # 檢查並安裝 Python 依賴
@@ -407,7 +439,10 @@ echo -e "${GREEN}=========================================="
 echo "✓ 安裝完成!"
 echo -e "==========================================${NC}"
 echo ""
-echo "安裝位置: $TARGET_DIR"
+echo "已安裝 skill:"
+for skill in "${SKILLS[@]}"; do
+    echo "  - $SKILLS_ROOT/$skill"
+done
 echo ""
 echo -e "${BLUE}下一步:${NC}"
 echo ""
@@ -423,6 +458,9 @@ echo "3. 開始使用:"
 echo "   升級 requests 到 2.32.0      (Python)"
 echo "   升級 axios 到 1.6.0           (JavaScript)"
 echo "   修復 CVE-2024-35195"
+echo ""
+echo "4. 跑完想回饋?"
+echo "   /package-upgrade-feedback     (互動式收集 → 自動 sanitize → 開 GitHub Issue)"
 echo ""
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ] || [ ${#MISSING_TOOLS[@]} -gt 0 ]; then
