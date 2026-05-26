@@ -148,10 +148,28 @@ bash scripts/detect_env_go.sh <project_path>
 **停下來告訴使用者先 migrate 到 Go modules**（`go mod init <path> && go mod tidy`），
 然後重跑 skill。此 skill **不處理** legacy 工具升級。
 
-### Step 0.3: Pre-flight checks（JS / Go path 必跑）
+### Step 0.3: Pre-flight checks（三條路徑都必跑）
 
-**JS / Go path 在 Phase 1 之前必須跑 pre-flight**，把所有可能 block 的環境問題一次列出。
-別像 IMPROVEMENTS #1/#2/#3 那樣跑到 Phase 5 才撞牆。
+**Phase 1 之前必須跑 pre-flight**，把所有可能 block 的環境問題一次列出。
+別像 IMPROVEMENTS #1/#2/#3 那樣跑到 Phase 5 才撞牆。三支腳本輸出 schema 對齊
+（`blockers` / `warnings` / `ok` / `summary` / `env`），LLM 可以同一套邏輯處理。
+
+**Python path**:
+
+```bash
+bash scripts/preflight_py.sh <project_path>
+```
+
+腳本會自動 source `<project>/.env.pip` / `.env.poetry` / `.env.uv` / `.env.pypi` /
+`.env.jfrog`（若存在），所以前一次 session 持久化的 token 不需要重新提供。檢查：
+1. `python3` 在 PATH 且版本可解析
+2. 偵測到的 pkg_manager binary（pip / poetry / uv）在 PATH
+3. `requirements.in` 存在時 `pip-compile` 可用
+4. virtualenv 是否啟用（`VIRTUAL_ENV` / `CONDA_PREFIX` / `.venv/` / `venv/`）
+5. `pyproject.toml` / `pip.conf` / `poetry.toml` 中 `${ENV_VAR}` 引用是否都已設定
+6. `gh` CLI 對 `git_remote_host` 是否已認證
+7. git working tree 是否乾淨
+8. 偵測到的 pip lock file（informational）
 
 **JS path**:
 
