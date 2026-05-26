@@ -1,0 +1,30 @@
+name: Daily Issue Triage
+
+on:
+  schedule:
+    - cron: "0 1 * * *"  # 01:00 UTC = 09:00 Asia/Taipei
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+  models: read
+
+jobs:
+  triage:
+    name: triage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Score open issues and post digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TRIAGE_MODEL: openai/gpt-4o-mini
+          TRIAGE_MAX_ISSUES: "30"
+        run: python .github/scripts/daily_issue_triage.py
