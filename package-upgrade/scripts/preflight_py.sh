@@ -168,6 +168,15 @@ if [ "$HAS_PIP_TOOLS" = "true" ]; then
     fi
 fi
 
+# Check 3.1: pip-audit (optional but strongly recommended for Python CVE workflow)
+if command -v pip-audit >/dev/null 2>&1; then
+    add_ok "pip_audit" "pip-audit available (recommended for CVE reachability analysis)"
+else
+    add_warn "pip_audit_missing" \
+        "pip-audit not installed (recommended for Phase 1.B CVE workflow)" \
+        "Install: pip install pip-audit — Phase 1.B falls back to grep-only reachability without it"
+fi
+
 # Check 4: virtualenv hint — warn (not block) if running outside any venv.
 # pip/poetry/uv can technically run against system Python but the upgrade
 # will then pollute the user's system site-packages.

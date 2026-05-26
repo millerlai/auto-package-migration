@@ -427,6 +427,29 @@ LLM 推理流程，但在 Phase 7.1 報告中標明缺少 reachability 分析。
 
 詳見 `references/govulncheck.md`。
 
+**Python path 額外步驟（pip-audit reachability）**:
+
+若 `language == "python"` 且 `pip-audit` 可用（pre-flight 會偵測），**在 grep 風險
+評估之前**先跑：
+
+```bash
+bash scripts/pip_audit_py.sh <project_path> --cve <CVE-ID>
+```
+
+輸出 schema 對齊 govulncheck_go.sh，含 `match` 欄位（`called` / `imported` /
+`not_present`）。Python 沒有原生 call graph，腳本以「`pip-audit` 列出脆弱套件 +
+從 advisory 文字抽取符號名 + `ast_scanner.py` 找實際使用點」近似 reachability：
+
+- `called` — source code 真的用到 advisory 提到的 symbol → **critical**
+- `imported` — 有 import 但 advisory 的 symbol 沒在 usages 出現 → **medium**
+- `not_present` — dep 完全沒被 import → **告知使用者不影響**
+
+精度低於 Go (Python 動態本質)，但仍能把純 transitive 噪音篩掉。`extracted_symbols`
+與 `import_names` 都列出來，方便 LLM 在報告中說明 reachability 推論依據。
+
+**`pip-audit` 未安裝時**: 告知使用者降級為 grep-only 模式，並建議
+`pip install pip-audit` 後重跑。
+
 ### 情況 C: 使用者提供 Jira URL 或 Jira ID
 
 範例輸入:
