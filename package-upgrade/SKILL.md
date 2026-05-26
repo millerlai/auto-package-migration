@@ -2224,6 +2224,7 @@ Step 7.5 和 7.6 **只在以下條件全部成立時才執行**:
 **Branch**: `{branch_name}`
 **Commit**: `{commit_sha_short}`
 **Tests**: ✅ Passed ({test_count} tests) | ❌ {failed_count} failures
+**Runtime**: {runtime_summary}                          ← JS path 且 Step 0.5 抓了 baseline 才出現; Python/Go 整行省略 (見 references/jira_workflow.md §4.1)
 
 ### Executive Summary
 {Phase 7.1 第一節原文}
