@@ -25,8 +25,10 @@ JS path **必讀** `references/js_ast_strategy.md` 與
 | 3 Breaking change | `scripts/api_surface_diff_js.js` + `scripts/git_diff_js.sh` + `scripts/fetch_changelog.py` | **三軌**：`.d.ts` API surface diff (新增) + Git diff 過濾 `*.{js,ts,jsx,tsx,d.ts}` + Changelog |
 | 4 程式碼影響 | `scripts/ast_scanner_js.js` | 使用 `@babel/parser` + `@babel/traverse`；symbol 命名規則見下方 |
 | 5 執行升級 | `npm install <pkg>@<ver>` / `npm install <pkg>@<ver> --save-peer` | `npm install` 會自動寫回 `package.json` 與 `package-lock.json` — 與 pip 不同；**預設加 `--ignore-scripts`** |
+| 0.5 Runtime baseline (optional) | `scripts/runtime_verify_js.js --mode baseline` | **JS 專屬**；偵測 web app → 升前抓 dev server boot + HTTP probe + (T2) console errors，作為 Step 6.6 的對照組。詳見 `references/runtime_verification_js.md`。 |
 | 6 測試 | `scripts/run_tests_js.sh` | Auto-detect jest / vitest / mocha / node:test |
-| 7 報告 / commit / PR / Jira | 沿用既有模板 | Report 多一節：**API Surface Diff 來源** |
+| 6.6 Runtime verify (僅 0.5 抓了 baseline) | `scripts/runtime_verify_js.js --mode verify` | 重跑同一指令，diff baseline → 標出新出現的 stderr / console / HTTP / render regression |
+| 7 報告 / commit / PR / Jira | 沿用既有模板 | Report 多一節：**API Surface Diff 來源**；若跑了 0.5/6.6 再多一節 **Runtime Verification** |
 
 ---
 

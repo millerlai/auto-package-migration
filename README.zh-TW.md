@@ -87,6 +87,16 @@ claude "看看 django 能不能從 4.2 升到 5.1"
 - 🛡️ **govulncheck reachability** — 修 Go CVE 時會檢查漏洞 symbol 是否真的被你的程式呼叫
 - 📦 **Vendor / workspace 感知** — 尊重 `vendor/`、`go.work`、`replace` directives，不會誤覆蓋
 
+### 💌 Feedback companion — `/package-upgrade-feedback`
+
+`install.sh` 會同時安裝第二個 skill，用於把改進建議回送到本 repo。觸發詞：`/package-upgrade-feedback`、「改進 package-upgrade」、「report package-upgrade issue」。
+
+- 🧠 **LLM 主動草擬 `Improvement.md`** — 讀 `package-upgrade/SKILL.md`，從外部視角寫 5–10 項 improvement 草稿。草稿**完全不引用**使用者環境、目標套件、CVE / Jira / token、檔案路徑等私人資料。
+- ☑️ **多選 + 自由輸入** — 用 `AskUserQuestion`：勾選優先分類，並透過自動附加的 Other 欄位提供自由文字補充。
+- 🛡️ **Sanitizer 把關** — 自由輸入會過 `sanitize_feedback.sh`，自動 redact 路徑、token、Jira key、email、私有 IP、內部 hostname。偵測到高信心 secret pattern（`ghp_*`、`AKIA*`、JWT、private-key block…）會強制中斷流程。
+- 👀 **送出前 Review** — `y` / `edit` / `n`。選 `y` 後立即跑 `gh issue create`，送到 `millerlai/auto-package-migration` 並標 `feedback` label，**不再二次確認**。
+- 🔁 **`gh` 不可用 fallback** — 印出 pre-filled GitHub Issue URL，使用者可貼到瀏覽器手動送出。
+
 ---
 
 ## 🔄 7-Phase 工作流程
@@ -126,7 +136,7 @@ auto-package-migration/
 ├── grant_permissions.py               # 把 allow-list 寫進 Claude Code settings
 ├── pyproject.toml / uv.lock           # 本 repo 自己的開發環境 (UV 管理)
 │
-├── package-upgrade/                   # ⭐ 真正會被安裝的 Skill (複製到 ~/.claude/skills/)
+├── package-upgrade/                   # ⭐ 主升級 Skill (複製到 ~/.claude/skills/)
 │   ├── SKILL.md                       # 主技能定義 (Phase 0–7)
 │   ├── README.md                      # 終端使用者說明
 │   ├── QUICK_REFERENCE.md
@@ -170,6 +180,12 @@ auto-package-migration/
 │   │   └── jira_workflow.md
 │   └── templates/
 │       └── report_structure.md        # 報告撰寫範本
+│
+├── package-upgrade-feedback/          # 💌 Companion skill — 把改進建議回送成 GitHub Issue
+│   ├── SKILL.md                       # 5-phase 流程：LLM 草擬 → 問 → sanitize → review → 送
+│   └── scripts/
+│       ├── sanitize_feedback.sh       # redact 路徑 / token / Jira key / email / 私有 IP
+│       └── submit_feedback.sh         # `gh issue create` wrapper，附非 gh 環境 URL fallback
 │
 └── package-upgrade-agent-architecture.md  # 完整架構設計文件
 ```
@@ -243,6 +259,14 @@ claude "看看 django 能不能從 4.2 升到 5.1"
 ```
 
 依然會跑完整分析，但你可以在 Phase 4 確認點選 `[N]` 不執行修改 — 等於拿到一份「升級可行性報告」。
+
+### 回送對這個 skill 的改進建議
+
+```bash
+claude "/package-upgrade-feedback"
+```
+
+Companion skill 會草擬一份 10 項的 improvement 草稿（純針對 skill 設計，不會引用你當前 repo 的任何資料），讓你勾選優先分類並補充自由文字，sanitize 過敏感資料後印 final issue 內容給你 review；選 `y` 直接跑 `gh issue create` 送到 `millerlai/auto-package-migration` 並標 `feedback` label。
 
 ---
 

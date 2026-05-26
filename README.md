@@ -87,6 +87,16 @@ Language detection order (Phase 0): **Go > JS > Python**.
 - 🛡️ **govulncheck reachability** — when fixing a Go CVE, the skill checks whether the vulnerable symbol is actually called from your code
 - 📦 **Vendor / workspace aware** — respects `vendor/`, `go.work`, and `replace` directives instead of stomping on them
 
+### 💌 Feedback companion — `/package-upgrade-feedback`
+
+`install.sh` ships a second skill for sending improvement suggestions back to this repo. Triggered by `/package-upgrade-feedback`, "improve package-upgrade", or "report package-upgrade issue".
+
+- 🧠 **LLM-drafted `Improvement.md`** — reads the installed `package-upgrade/SKILL.md` and writes a 5–10 item improvement draft from an outside-in perspective. The draft **never references** your environment, target package, CVE / Jira / token, file paths, or any other private data.
+- ☑️ **Multi-select + free-form input** — uses `AskUserQuestion`: tick which priority groups you care about, optionally add free-form context via the auto-supplied Other field.
+- 🛡️ **Sanitizer gate** — free-form input passes through `sanitize_feedback.sh` (redacts paths, tokens, Jira keys, emails, private IPs, internal hostnames). High-confidence secret patterns (`ghp_*`, `AKIA*`, JWT, private-key blocks, …) halt the workflow.
+- 👀 **Review-before-send** — `y` / `edit` / `n`. On `y` the skill immediately runs `gh issue create` on `millerlai/auto-package-migration` with label `feedback`; no second confirmation.
+- 🔁 **`gh`-unavailable fallback** — prints a pre-filled GitHub Issue URL you can paste into the browser.
+
 ---
 
 ## 🔄 The 7-phase pipeline
@@ -126,7 +136,7 @@ auto-package-migration/
 ├── grant_permissions.py               # writes the allow-list into Claude Code settings
 ├── pyproject.toml / uv.lock           # this repo's own dev env (UV-managed)
 │
-├── package-upgrade/                   # ⭐ the shipped skill (copied to ~/.claude/skills/)
+├── package-upgrade/                   # ⭐ the shipped upgrade skill (copied to ~/.claude/skills/)
 │   ├── SKILL.md                       # main skill definition (Phase 0–7)
 │   ├── README.md                      # end-user usage doc
 │   ├── QUICK_REFERENCE.md
@@ -170,6 +180,12 @@ auto-package-migration/
 │   │   └── jira_workflow.md
 │   └── templates/
 │       └── report_structure.md        # report-writing template
+│
+├── package-upgrade-feedback/          # 💌 companion skill — send improvement ideas back as GitHub Issues
+│   ├── SKILL.md                       # 5-phase flow: LLM draft → ask → sanitize → review → send
+│   └── scripts/
+│       ├── sanitize_feedback.sh       # redacts paths / tokens / Jira keys / emails / private IPs
+│       └── submit_feedback.sh         # `gh issue create` wrapper with non-gh URL fallback
 │
 └── package-upgrade-agent-architecture.md  # full architecture doc
 ```
@@ -243,6 +259,14 @@ claude "can we move django from 4.2 to 5.1?"
 ```
 
 The full analysis still runs, but you can answer `[N]` at the Phase 4 confirmation gate — you get a feasibility report without any code being touched.
+
+### Sending feedback about this skill
+
+```bash
+claude "/package-upgrade-feedback"
+```
+
+The companion skill drafts a 10-item improvement proposal (covering only the skill's own design — no data from your current repo), lets you tick which priority groups to act on and add free-form context, sanitizes the combined body, shows you the final issue text, and on `y` runs `gh issue create` to file an issue on `millerlai/auto-package-migration` with the `feedback` label.
 
 ---
 
