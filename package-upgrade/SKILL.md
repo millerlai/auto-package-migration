@@ -535,20 +535,30 @@ jira_context = {
 `dep_tree_js.js` 的 `workspace_info.locations` 已經告訴你 target 到底出現在哪些
 workspace（與哪個 dep 欄位）。詢問時直接帶入這份清單，**不要**讓使用者自己列。
 
-詢問模板（含實裝資料）：
+詢問模板（含實裝資料）—— 多選為一等公民，預設推薦 `all`（CVE / security
+升級通常需要把所有命中 workspace 一起升）：
 
 ```
 偵測到此 repo 是 workspace monorepo (workspaces 共 {len(workspaces)} 個)。
-{package} 目前出現在：
-  - packages/foo (dependencies, ^1.2.3)
-  - packages/bar (devDependencies, ^1.2.0)
+{package} 目前出現在以下 workspaces：
+
+  [1] packages/foo   dependencies     ^1.2.3
+  [2] packages/bar   devDependencies  ^1.2.0
+  [3] packages/baz   peerDependencies ^1.2.0
+
 （其餘 N 個 workspace 沒有引用此套件，不會被改動）
 
-要將 {package} 升級套用到哪個範圍？
-[1] 上述全部命中的 workspaces — 一次升完
-[2] 指定其中一個或多個 — 我會逐一升
-[3] root workspace 的 package.json（只在 hoist 模式下有效）
+要升級哪些 workspace？(可多選)
+  - all      (推薦) 一次升完所有命中的 workspaces — CVE / security 升級通常選這個
+  - 1 3      指定編號，空白分隔，可多選
+  - root     只改 root package.json（僅 hoist 模式有效）
 ```
+
+收到回應後：
+- `all` → 對 `workspace_info.locations` 中每一筆都跑 Phase 5 升級
+- 編號清單 → 只對選到的子集跑
+- `root` → 僅改 root `package.json`，警告使用者「只在 hoist 模式下有效，否則子 workspace 仍會用舊版」
+- 任何看不懂的輸入 → 重新顯示 prompt，不要自行猜測
 
 若 `workspace_info.locations` 為空但 `is_workspace_root: true`，代表此 monorepo 完全
 沒引用 target — 跳出並警告使用者輸入是否正確，不要往下做升級。
