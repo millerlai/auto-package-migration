@@ -1735,7 +1735,23 @@ go mod verify
 - uv: `pyproject.toml` (檢查 `dependencies` 列表) 和 `uv.lock`
 - npm: `package.json` (檢查 `dependencies` / `devDependencies` / `peerDependencies`) 和 `package-lock.json`
 
-### Step 5.4: Post-edit 離線驗證（JS / Go）
+### Step 5.4: Post-edit 離線驗證（三條路徑都應跑）
+
+**Python path** — Phase 5.3 結束後**一律跑**：
+
+```bash
+bash scripts/validate_lock_python.sh <project_path> [--upgrade-strategy <name>]
+```
+
+依偵測到的 pkg_manager 跑對應的 lock 一致性檢查：
+- uv:        `uv lock --check`
+- poetry:    `poetry check --lock` (1.7+) 或 `poetry lock --check` (1.4-1.6)
+- pip-tools: `pip-compile --dry-run -o <tmp> requirements.in` 並 diff `requirements.txt`
+- pip (raw): `pip install --dry-run -r requirements.txt`（pip 23+）或 `pip check`
+
+當 Phase 2 的 `recommended_strategy == "lock_only"` 時，**必須**同時傳 `--upgrade-strategy
+lock_only`，腳本會額外 `git diff` 檢查 `pyproject.toml` / `requirements.in` 是否
+誤動 — lock-only 路徑不可動 manifest（見 `references/IMPORTANT_DEPENDENCY_UPDATE.md`）。
 
 **JS path** — 只要走過「手動編輯 lockfile」這條 fallback 路徑（preflight 缺 auth token、
 或 Phase 2 走 yarn `set resolution` 後手動補 lockfile），完工後**必跑**：
