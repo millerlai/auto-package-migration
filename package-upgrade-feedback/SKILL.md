@@ -1,137 +1,277 @@
 ---
 name: package-upgrade-feedback
 description: >
-  收集使用者跑完 `package-upgrade` skill 後的回饋並開成 GitHub Issue。
-  當使用者輸入「/package-upgrade-feedback」、「回報 package-upgrade 問題」、
-  「想給 package-upgrade 建議」、「package-upgrade 哪裡可以改」、
-  「report package-upgrade issue」、「package-upgrade feedback」時觸發。
-  互動式收集問題描述 + 重現步驟 + 建議改善方向，做 PII / secret sanitization，
-  最後用 `gh issue create` 送到 millerlai/auto-package-migration 的 GitHub Issue
-  (label=feedback)。不會送出任何 token、`/Users/...` 路徑、Jira key、
-  內部 hostname、email 等敏感資料。
+  收集對 `/package-upgrade` skill 本身的改進建議（流程 / 功能 / UX），開成 GitHub Issue
+  送到 millerlai/auto-package-migration。當使用者輸入「/package-upgrade-feedback」、
+  「改進 package-upgrade」、「report package-upgrade issue」、「package-upgrade feedback」、
+  「想給 package-upgrade 建議」時觸發。
+  流程：(1) LLM 主動讀 `/package-upgrade` SKILL.md 並從外部視角擬一份 Improvement.md
+  草稿（純針對 skill 流程與功能面，**完全不引用**使用者環境、套件、ticket、路徑、
+  token 等私人 / 專案資料）→ (2) 用 `AskUserQuestion` 工具以「多選 + 自動 Other 自由輸入」
+  方式收集使用者優先項與補充意見 → (3) 整合為 final issue body 並過
+  `sanitize_feedback.sh` 過濾敏感資料 → (4) Review gate：使用者選 `y` 立即送出 /
+  `edit` 修改 / `n` 取消 → (5) `gh issue create` 送到 millerlai/auto-package-migration
+  (label=feedback)。
 ---
 
 # Package Upgrade Feedback Skill
 
-收集使用者對 `package-upgrade` skill 的改進建議，送出為 GitHub Issue。
+收集對 `/package-upgrade` skill **本身** 的改進建議，由 LLM 主動草擬、使用者勾選 / 補充，
+最後送到 `millerlai/auto-package-migration` GitHub Issues。
+
+> 這個 skill 不是用來回報「我這次升 X 套件遇到 bug」的具體事件 — 那種請使用者自己
+> 直接開 issue 或在對話中報給維護者。這個 skill 收集的是對 skill 設計、流程、功能
+> 層面的改進建議。
 
 ## 設計原則
 
-1. **互動式、不假設**：不自動讀任何檔案，從對話中問出問題與建議。
-2. **Sanitization first**：所有送出的內容都要先過 `scripts/sanitize_feedback.sh`，
-   token / 路徑 / Jira key / 內部 hostname / email 一律 redacted。
-3. **使用者最後確認**：送出前一定 print 完整 issue body 給使用者看，等他點頭才呼叫 `gh`。
-4. **失敗不阻擋**：`gh` 未認證 / 無 repo 寫權限時，fallback 印出可以手動 paste 到瀏覽器的
-   pre-filled issue URL。
+1. **LLM-first drafting** — Phase 1 由 LLM 從外部視角主動寫一份 improvement 草稿，
+   讓使用者「勾選 + 補充」，不再「從零回答 5 個問題」。
+2. **No private data in the draft** — Phase 1 草稿絕對不引用使用者環境、套件名稱、
+   Jira key、CVE 編號、絕對路徑、token、組織內部 hostname 等。內容純粹是對 skill
+   流程與功能設計的觀察與建議。
+3. **多選 + 自由輸入** — Phase 2 用 `AskUserQuestion` 工具，提供 multi-select 優先項
+   選擇 + single-select 自由輸入（透過 UI 自動附加的 Other 選項）。
+4. **Sanitization gate** — 即使 Phase 1 草稿無私人資料，使用者在 Phase 2 自由輸入的
+   內容仍會經 `sanitize_feedback.sh` 過濾（路徑 / token / Jira key / email /
+   trendmicro hostname / 私有 IP）。
+5. **One-shot Review** — Phase 4 印完整 issue body 給使用者，三選一：`y` 立即送、
+   `edit` 修改、`n` 取消。`y` 後 **不再二次確認**，立即跑 `gh issue create`。
 
-## Phase 1: 收集問題
+## Phase 1: LLM 草擬 Improvement.md（無使用者資料）
 
-**從零開始**，不要去找 `.package-upgrade-cache/` 或任何 IMPROVEMENT.md 檔案
-(主 skill 不會自動產這種檔；如果使用者有手寫的 notes，會在 Phase 1 主動貼上來)。
+### Step 1.1 — 讀取當前 skill 內容
 
-逐項問使用者 (一次問一題，等他回完再問下一題)：
+讀以下其一（哪個存在讀哪個）：
 
-1. **這次跑 package-upgrade 你是想升什麼套件 / 修什麼 CVE？**
-   - 用來判斷 language (Python / JS / Go) 與情境
-   - 範例答案：「升 axios 1.6.0」、「修 CVE-2024-35195」、「BDSA-2024-xxxx」
+- `~/.claude/skills/package-upgrade/SKILL.md`（global install）
+- `./.claude/skills/package-upgrade/SKILL.md`（project install）
+- 開發環境下：`./package-upgrade/SKILL.md`（這個 repo 自己的源碼）
 
-2. **流程跑到哪一個 Phase 出問題？** (Phase 0 / 1 / 2 / 3 / 4 / 5 / 6 / 7 / 「順利跑完但有建議」)
-   - 用來在 issue 上 tag 對的子系統
+讀 SKILL.md 是為了取得 skill 當前的 phase 結構與功能範圍，**不是** 為了引用使用者
+任何資料。SKILL.md 本身是 skill 的公開設計文件，可安全引用。
 
-3. **具體遇到什麼問題？** (一段話描述 — 可多輪追問)
-   - 鼓勵使用者描述「期待 vs 實際」
-   - 例：「期待 Phase 4 AST 掃描列出所有 call sites，實際只列了 import statement」
+### Step 1.2 — 寫 Improvement.md 草稿（守則）
 
-4. **你建議怎麼改？** (這題最重要 — 若使用者沒想法可以跳過)
-   - 鼓勵具體：「Phase 4 應該追到 method call 層級」比「掃得更深」更有用
+**❌ 不要寫**：
+- 任何使用者的環境變數、檔案絕對路徑、家目錄
+- 使用者剛才在 `/package-upgrade` 跑的具體套件、版本、CVE/BDSA/GHSA 編號
+- 使用者的 Jira ticket key 或 URL
+- 使用者的 git remote、組織名、hostname、email
+- 任何 token / secret / credential（即使是脫敏過的也不要寫）
+- 「我看到你剛剛在升 X 套件時 ...」這類具體事件敘述
 
-5. **(選填) 還有什麼相關 context 想補充？**
+**✅ 要寫**：
+- 通用語言：「Phase 4 的 AST 掃描目前只偵測 import statement，建議延伸到
+  method call site 層級。」
+- 結構化：每項 improvement 都有 `Scope` / `Priority` / `Observation` /
+  `Suggested change` / `Why it matters` 五行。
+- 跨度：涵蓋 5-10 項，盡量分佈於不同 Phase（0-7）與不同語言（Python / JS / Go）。
+- 排優先級：標 `critical` / `important` / `nice-to-have`，不要全部標一樣。
+- 自我設限：若你對某個 phase 沒有具體觀察，就跳過，**不要硬湊** improvement。
 
-注意事項：
-- **不要問使用者套件管理 token、Jira ticket URL、檔案絕對路徑** — 那些是敏感資訊。
-  如果使用者主動提，要在 Phase 3 sanitize 掉並提醒他。
-- **不要要求使用者貼完整 stderr / log** — 一段關鍵錯誤訊息 (5-10 行) 已足夠，
-  完整 log 容易夾帶路徑與 token。
-
-## Phase 2: 草擬 Issue Body
-
-把 Phase 1 蒐集的回答組成 markdown，遵循這個結構：
-
-```markdown
-## 情境
-<語言、套件、CVE/BDSA/GHSA、或 Jira 觸發模式 — 都不含具體 ticket key>
-
-## 出問題的 Phase
-Phase <N> — <該 Phase 的名稱>
-
-## 期待 vs 實際
-**期待**: <一句話>
-**實際**: <一句話>
-
-## 詳細描述
-<使用者的敘述，過濾敏感資料後>
-
-## 建議改善方向
-<使用者的建議；若無，寫 "_(no specific suggestion)_">
-
-## 補充 Context
-<選填>
-
----
-_Submitted via `/package-upgrade-feedback`._
-```
-
-Title 取使用者問題的一句話摘要，prefix 用 `[feedback]`，全長 < 70 字。
-例：`[feedback] Phase 4 AST scanner 漏掉 method call sites`
-
-## Phase 3: Sanitize
-
-把 Phase 2 草擬好的 markdown 寫到暫存檔，跑 `scripts/sanitize_feedback.sh`：
+### Step 1.3 — 寫到暫存檔
 
 ```bash
-DRAFT=$(mktemp)
+DRAFT=$(mktemp -t package-upgrade-improvement.XXXXXX.md 2>/dev/null \
+        || mktemp /tmp/package-upgrade-improvement.XXXXXX.md)
+
 cat > "$DRAFT" <<'EOF'
-<上一步的 markdown>
+# /package-upgrade Skill — Improvement Proposals
+
+> Generated by `/package-upgrade-feedback` Phase 1 (LLM draft, no user data).
+> Reviewed and supplemented by user in Phase 2.
+
+## Summary
+<2-3 行：本次提出哪些主題的 improvement。仍不引用任何使用者資料。>
+
+## Improvement #1 — <title>
+- **Scope**: Phase <N> / Cross-cutting / Language-specific (Python | JS | Go)
+- **Priority**: critical | important | nice-to-have
+- **Observation**: <當前 skill 在這部分的行為，1-2 句>
+- **Suggested change**: <具體建議改成什麼>
+- **Why it matters**: <為什麼值得做、解決什麼類型的問題（不引具體事件）>
+
+## Improvement #2 — <title>
+...
+
+(以此類推 5-10 項)
+EOF
+```
+
+### Step 1.4 — Print 草稿給使用者
+
+把 `$DRAFT` 全文 print 給使用者，並說明：
+
+> 這是 LLM 先擬的 improvement 草稿（純針對 `/package-upgrade` skill 設計，
+> 不含你的環境 / 套件 / ticket 資料）。下一步我會用多選題請你勾選優先項、
+> 並透過 Other 欄位收集你想補充的內容。
+
+## Phase 2: 收集使用者意見（多選 + 自由輸入）
+
+### Step 2.1 — 必須用 `AskUserQuestion` 工具
+
+不要改用文字對話問。理由：`AskUserQuestion` 的 multi-select + 自動 Other 提供結構化
+的 UI，比手打對話準確、不會漏選，也讓使用者一目了然有哪些選項可勾。
+
+### Step 2.2 — 設計問題
+
+**`AskUserQuestion` 限制**：1-4 questions per call，每個 question 2-4 options。
+
+設計兩題：
+
+**Q1 (multiSelect: true)** — `Improvement 草稿中，哪些你覺得應該優先做？`
+
+- options 對應 Phase 1 草稿中的 improvement 標題。
+- 若草稿有 ≤ 4 項，每項一個 option，label 為標題、description 為 observation 摘要。
+- 若草稿有 > 4 項，依 priority 排序取前 4 個，**或** 合併分類為 4 組（例：
+  「Phase 0-2 改進」「Phase 3-4 改進」「Phase 5-7 改進」「跨 phase / UX」），
+  在 description 中列出該組涵蓋哪幾項。
+
+**Q2 (multiSelect: false)** — `除了草稿涵蓋的，你還想補充什麼？`
+
+固定 4 個 options（Other 由 UI 自動加，使用者點 Other 時可自由輸入）：
+
+- `Nothing to add` — 草稿已涵蓋我想說的
+- `想加新功能` — 在 Other 中描述
+- `想 report 一個具體 pain point` — 在 Other 中描述
+- `對某個 Phase 的設計有疑問` — 在 Other 中描述
+
+### Step 2.3 — 呼叫範例（structure；實際以 JSON 傳）
+
+```
+AskUserQuestion(questions=[
+  {
+    "question": "Improvement 草稿中，哪些你覺得應該優先做？",
+    "header": "Priority",
+    "multiSelect": true,
+    "options": [
+      {"label": "<Improvement #1 title>", "description": "<observation 摘要>"},
+      {"label": "<Improvement #2 title>", "description": "<observation 摘要>"},
+      {"label": "<Improvement #3 title>", "description": "<observation 摘要>"},
+      {"label": "<Improvement #4 title>", "description": "<observation 摘要>"}
+    ]
+  },
+  {
+    "question": "除了草稿涵蓋的，你還想補充什麼？",
+    "header": "Extra",
+    "multiSelect": false,
+    "options": [
+      {"label": "Nothing to add",            "description": "草稿已涵蓋我想說的"},
+      {"label": "想加新功能",                  "description": "在 Other 中描述"},
+      {"label": "想 report 一個具體 pain point", "description": "在 Other 中描述"},
+      {"label": "對某個 Phase 的設計有疑問",      "description": "在 Other 中描述"}
+    ]
+  }
+])
+```
+
+### Step 2.4 — 處理回答
+
+- Q1 勾選的標題 → 存為 `user_priorities`（list of strings）
+- Q2 選的 label → 存為 `user_extra_kind`
+- Q2 若選 Other（或選了非 "Nothing to add" 的選項並附帶 Other 文字）→ 存
+  Other 文字為 `user_extra_text`（可能為空字串）
+
+## Phase 3: 整合 final issue body + Sanitize
+
+### Step 3.1 — 組裝 markdown
+
+```markdown
+# [improvement] <主題摘要 — 一句話>
+
+## TL;DR
+<2-3 行：本次 feedback 的核心訴求；引用使用者勾的優先項>
+
+## LLM-generated draft
+> Generated by `/package-upgrade-feedback` Phase 1 (LLM, no user data).
+
+<把 $DRAFT 全文貼進來>
+
+## User-selected priorities
+從 LLM 草稿中，使用者標記為高優先：
+- <user_priorities[0]>
+- <user_priorities[1]>
+- ...
+(若 user_priorities 為空，寫 "_(no priority selected — user reviewed but
+did not mark specific items)_")
+
+## User's additional input
+**Kind**: <user_extra_kind>
+
+<user_extra_text 全文；若為 "Nothing to add" 或空字串，寫 "_(no additional input)_">
+
+---
+_Submitted via `/package-upgrade-feedback`. Draft by LLM; priorities and free-form
+input by user._
+```
+
+### Step 3.2 — Sanitize
+
+寫到暫存檔再過 sanitizer：
+
+```bash
+BODY_DRAFT=$(mktemp)
+cat > "$BODY_DRAFT" <<'EOF'
+<整段 markdown>
 EOF
 
-# Sanitization pass — 印 sanitized markdown 到 stdout、redaction list 到 stderr
 SANITIZED=$(mktemp)
-bash scripts/sanitize_feedback.sh "$DRAFT" > "$SANITIZED" 2> "$DRAFT.redactions"
+bash scripts/sanitize_feedback.sh "$BODY_DRAFT" \
+    > "$SANITIZED" 2> "$BODY_DRAFT.redactions"
+SANITIZE_EXIT=$?
 ```
 
-**讀 `$DRAFT.redactions`** — 它會告訴你哪些 pattern 被替換了 (絕對路徑、token、Jira key、
-internal hostname、email)。**如果有任何 redaction**，務必把這個清單 print 給使用者，
-讓他知道：
+讀 `$BODY_DRAFT.redactions`：
 
-```
-🛡️ Sanitization 報告
-- 移除了 1 個絕對路徑 (替換為 <path>)
-- 移除了 1 個 Jira key (替換為 <JIRA-KEY>)
-```
+- 若內容是 `Sanitization report: no redactions needed.` → 不需特別告知使用者。
+- 若有任何 redaction → print 給使用者：
+  ```
+  🛡️ Sanitization report
+  - 移除了 N 個絕對路徑（替換為 <path>）
+  - 移除了 N 個 Jira key（替換為 <JIRA-KEY>）
+  ```
+- 若 exit code = 5（疑似 high-confidence secret）→ **強制中斷**，列出可疑行給使用者
+  確認；待使用者確認後再決定是否重跑 Phase 2 收集修改。
 
-若 sanitizer 偵測到 **疑似 secret / token / API key**，**強制中斷流程**，告訴使用者：
-「偵測到疑似 token 字串，請手動確認你貼的內容是否含敏感資料」並印出有問題的那幾行。
+### Step 3.3 — Title
 
-## Phase 4: 預覽 + 確認
+取使用者勾的最高優先項作為主軸 + 「等」表達多項，prefix 用 `[improvement]`，
+全長 < 70 字。
 
-把 sanitized 後的 final body print 給使用者，問：
+範例：
+- `[improvement] Phase 4 AST 掃描追到 call site + Phase 6 失敗重試`
+- `[improvement] Go major version path rewrite UX`
+- `[improvement] 整體 Phase 0 環境偵測加速`
 
-> 以下是即將開的 GitHub Issue。確認沒問題後回 `y` 送出，回 `n` 取消，回 `edit` 進入修改模式。
+## Phase 4: Review gate
+
+把 `$SANITIZED` 內容 print 給使用者：
+
+> 以下是即將開的 GitHub Issue：
 >
 > Repository: `millerlai/auto-package-migration`
 > Label: `feedback`
 > Title: `<title>`
 >
 > ```markdown
-> <sanitized body>
+> <sanitized body 全文>
 > ```
+>
+> 三選一：
+> - `y` — 直接送出（**立即執行 `gh issue create`，不再二次確認**）
+> - `edit` — 進入修改模式，告訴我要改哪一段、改成什麼
+> - `n` — 取消，不送出
 
-`edit` 模式：問使用者要改哪一段、改成什麼，更新 draft 後**重新跑 Phase 3 sanitize**
-(不要省略，使用者新貼的內容可能含敏感資料)。
+### Edit 模式
+
+- 問使用者要改哪一段、改成什麼。
+- 更新 draft 後 **必須重跑 Phase 3.2 sanitize**（使用者新貼的內容可能含敏感資料）。
+- 重新顯示 Phase 4 review gate。
 
 ## Phase 5: 送出
 
-使用者確認後：
+使用者選 `y` → **立即** 呼叫：
 
 ```bash
 bash scripts/submit_feedback.sh \
@@ -139,16 +279,18 @@ bash scripts/submit_feedback.sh \
     --body-file "$SANITIZED"
 ```
 
-成功時 script 會 print issue URL，把 URL 給使用者。
+不再追問、不要先 dry-run。
 
-**Fallback** — 若 script exit code != 0：
+成功 → script 印 issue URL 到 stdout，把 URL 回給使用者。
 
-- exit 2: `gh` not installed → 印安裝指引 + 用 `https://github.com/millerlai/auto-package-migration/issues/new?...` URL 讓使用者手動開
+失敗 fallback：
+- exit 2: `gh` not installed → 印安裝指引 + 手動 URL fallback
 - exit 3: `gh` not authed → 印 `gh auth login` 指引 + 手動 URL fallback
-- exit 4: API 拒絕 (權限 / repo not found) → 印手動 URL fallback
-- exit 其他: 印 stderr 並建議使用者手動 paste
+- exit 4: API 拒絕（權限 / repo not found） → 印手動 URL fallback
+- exit 其他: 印 stderr + 建議手動 paste
 
-手動 URL 格式 (URL-encode body)：
+手動 URL fallback 格式（記得 URL-encode title 與 body）：
+
 ```
 https://github.com/millerlai/auto-package-migration/issues/new?title=<encoded-title>&body=<encoded-body>&labels=feedback
 ```
@@ -156,11 +298,20 @@ https://github.com/millerlai/auto-package-migration/issues/new?title=<encoded-ti
 ## 流程總結
 
 ```
-Phase 1 (互動收集)
-  → Phase 2 (Claude 寫 markdown)
-  → Phase 3 (sanitize_feedback.sh)
-  → Phase 4 (預覽 + 使用者確認)
-  → Phase 5 (submit_feedback.sh → gh issue create)
+Phase 1  LLM 讀 SKILL.md → 草擬 Improvement.md（無使用者資料）→ print 給使用者
+   ↓
+Phase 2  AskUserQuestion：
+           Q1 多選 = 從草稿勾優先項
+           Q2 單選 + 自動 Other = 自由輸入補充
+   ↓
+Phase 3  整合 [LLM 草稿 + user_priorities + user_extra_*] → sanitize_feedback.sh
+   ↓
+Phase 4  Print final body → 使用者選 y / edit / n
+   ↓
+Phase 5  y → 立即 `gh issue create`（透過 submit_feedback.sh）
+         edit → 改完回到 Phase 3.2
+         n → 結束
 ```
 
-只有 Phase 5 會碰外部世界，其它都是 local。
+只有 Phase 5 會碰外部世界。Phase 1 不依賴使用者具體任務、Phase 3 sanitize 是
+最後一道保險。
