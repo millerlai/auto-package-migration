@@ -1046,9 +1046,10 @@ Phase 5.3 走對應的 lock-only 命令 (見 Phase 5.3 的「Transitive: lock-on
 > - JavaScript: Changelog + Git Diff + `.d.ts` API Surface Diff（**三軌**）
 > - Go: Changelog + Git Diff + `apidiff` API Surface Diff（**三軌**）
 
-### Step 3.0: API Surface Diff（JS / Go 專用）
+### Step 3.0: API Surface Diff（三條路徑都有，Python 較弱）
 
-僅當 `language == "javascript"` 或 `"go"` 時執行。
+三條路徑都可跑 API surface diff 當作 Phase 3 的第三軌（除 changelog + git diff
+外的額外結構性訊號）。Python 因動態語言本質，精度低於 JS / Go。
 
 **JS path**:
 
@@ -1085,6 +1086,28 @@ bash scripts/api_surface_diff_go.sh <module_path> <old_version> <new_version>
 
 `strategy == "none"` 表示 `apidiff` 沒裝或 module 下載失敗 — 走 Git Diff + Changelog
 雙軌降級。詳細策略見 `references/go_workflow.md` 與 `references/breaking_change_patterns_go.md`。
+
+**Python path**:
+
+```bash
+bash scripts/api_surface_diff_py.sh <package_name> <old_version> <new_version>
+```
+
+輸出 schema 與 JS / Go 對齊（`removed` / `added` / `changed` / `deprecated_new`
++ `strategy` + `confidence_score`）。`changed` 條目 `category` 為
+`signature_change` / `kind_change` / `type_change` / `incompatible_other`。
+`deprecated_new` 透過 `@deprecated` decorator 或 docstring `.. deprecated::`
+標記偵測。
+
+| 兩版策略 | baseline | 說明 |
+|---|---|---|
+| `griffe` | 0.65 | griffe 載入成功 — Python 動態本質導致精度上限低於 Go apidiff 的 0.9 |
+| `none` | 0.0 | griffe 未安裝或 pip install 失敗 — 不採信本軌 |
+
+`errors[]` 非空時降至 0.5。腳本以 `pip install --target` (或 `uv pip install`
+fallback) 將兩版本裝到 temp dir，griffe 載入後 walk 全樹建立 `{path: signature}`
+flat map 做集合差集。**前提條件**：`griffe` 套件已安裝（`pip install griffe`）。
+未裝時降級走 Changelog + Git Diff 雙軌。
 
 **在 session 中保留** `api_surface_diff = {package, old, new, strategy, confidence_score,
 removed_count, changed_count, deprecated_new_count, source_old, source_new}`。Phase 7.1
