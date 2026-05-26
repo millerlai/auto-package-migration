@@ -10,8 +10,8 @@
 #   2. Locate each version's source dir under $GOMODCACHE/<path>@<ver>.
 #   3. Run `apidiff -m <old_dir> <new_dir>` and parse the output.
 #
-# Output: JSON aligned with api_surface_diff_js.js so Phase 3 LLM logic
-#         stays shared:
+# Output: JSON aligned with api_surface_diff_js.js + api_surface_diff_py.sh
+#         so Phase 3 LLM logic stays shared:
 #   {
 #     "package_name": "github.com/foo/bar",
 #     "old_version": "v1.2.0",
@@ -19,6 +19,8 @@
 #     "strategy": "apidiff" | "none",
 #     "old_source_label": "module cache: .../foo@v1.2.0",
 #     "new_source_label": "module cache: .../foo@v1.3.0",
+#     "confidence_score": 0.9,
+#     "confidence_basis": "apidiff source-level comparison with full type info",
 #     "removed": [{"name": "...", "kind": "incompatible"}, ...],
 #     "added":   [...],
 #     "changed": [{"name": "...", "old_signature": "...", "new_signature": "...",
@@ -307,6 +309,13 @@ CHANGED=$(echo "$DIFF_JSON" | jq -c '.changed')
 OLD_LABEL="module cache: ${OLD_DIR}"
 NEW_LABEL="module cache: ${NEW_DIR}"
 
+# Confidence: apidiff does source-level comparison with full type info,
+# the gold standard among the three languages. Schema aligned with
+# api_surface_diff_py.sh + api_surface_diff_js.js — always emit
+# confidence_score + confidence_basis.
+CONFIDENCE_SCORE="0.9"
+CONFIDENCE_BASIS="apidiff source-level comparison with full type info"
+
 cat <<EOF
 {
   "package_name": "$MODULE_PATH",
@@ -315,6 +324,8 @@ cat <<EOF
   "strategy": "apidiff",
   "old_source_label": $(printf '%s' "$OLD_LABEL" | jq -Rs .),
   "new_source_label": $(printf '%s' "$NEW_LABEL" | jq -Rs .),
+  "confidence_score": $CONFIDENCE_SCORE,
+  "confidence_basis": $(printf '%s' "$CONFIDENCE_BASIS" | jq -Rs .),
   "removed": $REMOVED,
   "added": $ADDED,
   "changed": $CHANGED,
