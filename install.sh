@@ -470,5 +470,5 @@ fi
 
 echo ""
 echo "更多資訊請參考:"
-echo "  - INSTALLATION_GUIDE.md"
+echo "  - docs/installation.md"
 echo "  - package-upgrade/README.md"
