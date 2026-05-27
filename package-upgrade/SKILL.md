@@ -1064,7 +1064,28 @@ Phase 5.3 走對應的 lock-only 命令 (見 Phase 5.3 的「Transitive: lock-on
 ### Step 3.0: API Surface Diff（三條路徑都有，Python 較弱）
 
 三條路徑都可跑 API surface diff 當作 Phase 3 的第三軌（除 changelog + git diff
-外的額外結構性訊號）。Python 因動態語言本質，精度低於 JS / Go。
+外的額外結構性訊號）。三邊輸出 schema **完全對齊**：
+都含 `confidence_score: float` + `confidence_basis: string` + `strategy` +
+`removed` / `added` / `changed` / `deprecated_new` / `warnings` / `errors`。
+
+#### 三語言 confidence baseline 對照（TODO task 1.3）
+
+| 語言 | strategy | baseline | 為何此分數 |
+|------|----------|----------|------------|
+| Go | `apidiff` | **0.9** | apidiff 是 source-level 比較，含完整型別資訊（gold-standard） |
+| JS / TS | `dts/dts` | 0.85 | 雙方都有 `.d.ts`，型別宣告級比對 |
+| JS / TS | `mixed` (dts ↔ js) | 0.3 | 一邊有 type、一邊沒有，diff 雜訊高 |
+| JS / TS | `js/js` | 0.4 | 純 runtime symbol 枚舉，缺 type 資訊 |
+| Python | `griffe` | 0.65 | griffe 靜態枚舉；`__getattr__` / runtime-only export 可能漏 |
+| 任一語言 | `none` | 0.0 | 工具未裝或無法枚舉 — 不採信本軌 |
+| 任一語言 | errors 非空 | × 0.7 | 處理過程出錯，surface 可能不完整 |
+| 任一語言 | warnings 非空 | × 0.9 | 部分 corner case 沒解析到 |
+
+`confidence_basis` 是一段一句話文字描述，標明 baseline 是如何得來的；
+報告中應原樣引用，方便 reviewer 判斷可信度。
+
+Phase 3.3 合併三軌（changelog / git diff / API surface）時，
+把各 `confidence_score` 當 baseline，再依交叉驗證調整最終結論。
 
 **JS path**:
 

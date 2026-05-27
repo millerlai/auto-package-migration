@@ -12,7 +12,7 @@
 |--------|------|-------------|
 | 1.1 `detect_env.sh` Python 補欄位 | ✅ 完成 | `feat/schema-alignment` (cb07300)：加 `language` / `pkg_manager_bin` / `custom_registries`（pyproject.toml + pip.conf）/ `env_var_placeholders` / `git_remote_host` / `memory_hints` |
 | 1.2 `ast_scanner` 加 `verdict` | ✅ 完成 | `feat/schema-alignment` (cb07300)：Python + JS scanner 加 `verdict` / `verdict_reason` / `files_scanned` / `import_count` / `usage_count` / `warnings`，與 `ast_scanner_go.go` 對齊 |
-| 1.3 `api_surface_diff` confidence 統一 | ⬜ 未開始 | 依執行順序，等任務 3 補測試後再做 |
+| 1.3 `api_surface_diff` confidence 統一 | ✅ 完成 | `feat/api-surface-confidence`：Python + Go 各加 `confidence_basis` 欄（JS 已有）；SKILL.md Phase 3.0 新增三語言對照表（Go apidiff 0.9 / JS dts/dts 0.85 / Python griffe 0.65 等），errors/warnings 連動懲罰；三 script 開頭 schema 文檔同步 |
 | 2.1 `runtime_verification_{py,go}.md` | ✅ 完成 | `docs/multi-lang-references`：兩份新文件覆蓋 T1-import / T1-cli / T2-web / T2-data (py)、T1-build / T1-cli / T2-server (go)。SKILL.md Phase 0.2 對應段落已連到新文件 |
 | 2.2 `python_override_semantics.md` + `js_override_semantics.md` | ✅ 完成 | `docs/multi-lang-references`：Python 涵蓋 pip-tools / poetry / uv 三套；JS 涵蓋 npm / yarn 1 / yarn 3+ / pnpm / bun 五套。SKILL.md Phase 0.2 各 path 段落已連結 |
 | 2.3 `breaking_change_patterns_py.md` | ✅ 完成 | `docs/multi-lang-references`：Python 慣例（`@deprecated` / `__getattr__` / async/sync / C ext ABI / pickle / pkg_resources 等）；含 Phase 4 修法 cookbook |
