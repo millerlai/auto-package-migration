@@ -1,8 +1,8 @@
 # Yarn (Berry / v3+) Workflow
 
-> 對應 Python 的 `pip_workflow.md`，但 yarn 3 (Berry) 的指令與 yarn 1 差異很大，
+> 對應 Python 的 `../python/pip_workflow.md`，但 yarn 3 (Berry) 的指令與 yarn 1 差異很大，
 > 而且 corepack-managed 的 yarn 通常**不在 PATH**，必須透過 `pkg_manager_bin`
-> 變數呼叫 (見 `detect_env_js.sh` 輸出)。
+> 變數呼叫 (見 `scripts/javascript/detect_env.sh` 輸出)。
 
 ## 重要前置條件 (preflight.sh 已偵測)
 

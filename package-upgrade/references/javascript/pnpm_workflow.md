@@ -120,7 +120,7 @@ $PKG_MANAGER_BIN add <direct-parent>@<new-range>
 ```
 
 語意：只在 `form-data` 是被 `axios` 拉進來時 pin 到 4.0.4 — 詳見
-[js_override_semantics.md](js_override_semantics.md)。
+[override_semantics.md](override_semantics.md)。
 
 ```bash
 $PKG_MANAGER_BIN install --lockfile-only

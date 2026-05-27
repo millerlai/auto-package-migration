@@ -160,6 +160,6 @@ Phase 7 報告的 `## Runtime Verification` 段落：
 
 ## 為什麼有這份文件
 
-`runtime_verification_js.md` 已存在多時，Python track 一直缺對等覆蓋（TODO.md 任務 2.1）。
+`../javascript/runtime_verification.md` 已存在多時，Python track 一直缺對等覆蓋（TODO.md 任務 2.1）。
 Python 場景更分歧（library / CLI / web / data），所以本文件比 JS 版多一層 tier 分類，
 但執行精神一致：抓 baseline → 升級 → 重跑 → diff → 把新增錯誤歸因為本次升級。

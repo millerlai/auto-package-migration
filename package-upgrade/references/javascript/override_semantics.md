@@ -2,7 +2,7 @@
 
 > 這份文件統整 JS 四套套件管理工具強制升降 transitive dependency 的語法。
 > Phase 2 在挑選策略 `bump_override` 時應引用本檔。對應 Python 的
-> `python_override_semantics.md`、Go 的 `go_replace_semantics.md`。
+> `../python/override_semantics.md`、Go 的 `../go/replace_semantics.md`。
 
 ---
 
@@ -248,7 +248,7 @@ bun 不支援 `resolutions`（yarn 語法）。若專案歷史是 yarn 移植到
 
 ## 為什麼有這份文件
 
-Go 有 `go_replace_semantics.md`、Python 有 `python_override_semantics.md` 統整 override
+Go 有 `../go/replace_semantics.md`、Python 有 `../python/override_semantics.md` 統整 override
 語意，JS 對應知識散落在 `npm_workflow.md` / `yarn_workflow.md`，使用者要在兩個檔案間跳，
 且 pnpm / bun 沒有專屬 workflow.md 涵蓋這塊。本文件統整四套工具的 override 寫法
 （TODO.md 任務 2.2），是 Phase 2 `bump_override` 策略的單一參考來源。

@@ -1,6 +1,6 @@
 # Go Breaking Change Patterns
 
-> 對應 Python 的 `breaking_change_patterns.md` 與 JS 的 `breaking_change_patterns_js.md`。
+> 對應 Python 的 `../python/breaking_change_patterns.md` 與 JS 的 `../javascript/breaking_change_patterns.md`，通用版見 `../common/breaking_change_patterns.md`。
 
 ## Changelog / Release Notes 措辭
 
@@ -27,7 +27,7 @@ Go 生態的 release notes 慣用語：
 
 ### A. Major version path rewrite (v1 → v2+)
 
-最常見、最 disruptive 的 Go 升級場景。詳見 `go_major_version_paths.md`。
+最常見、最 disruptive 的 Go 升級場景。詳見 `major_version_paths.md`。
 
 偵測：apidiff 在 v2+ 路徑下會列大量「removed」（因為新 module 是新 path，舊 path
 的所有 symbol 都「不存在」於新 path）。Phase 3 報告要識別這個 noise — 不是真的所有
