@@ -141,7 +141,7 @@ claude mcp list | grep atlassian
 #### 路徑 C: 不安裝 MCP，用 REST API fallback
 
 Skill 內建 fallback — 若 MCP 不可用，會主動詢問你是否提供 API token，
-然後透過 `scripts/jira_fetch.py` / `jira_comment.py` / `jira_transition.py`
+然後透過 `scripts/common/jira_fetch.py` / `jira_comment.py` / `jira_transition.py`
 直接呼叫 REST API。Token 只在當前 session 暫存，**不寫入任何檔案**。
 
 ⚠️ 這個模式下 token 會出現在對話 transcript 中，慎用。
@@ -220,7 +220,7 @@ Claude Code:
 
 Claude Code:
 1. 偵測語言 → go；major version jump 偵測到
-2. 列出所有需要改成 /v2 的 import path (read references/go_major_version_paths.md)
+2. 列出所有需要改成 /v2 的 import path (read references/go/major_version_paths.md)
 3. 等待使用者確認
 4. 同時改 go.mod、所有 *.go 的 import、必要的程式碼調整
 5. go vet / go build / go test 驗證
@@ -242,7 +242,7 @@ Claude Code:
 ```
 
 BDSA 編號 (Black Duck) 與 GHSA (GitHub Security Advisory) 同樣支援，
-參考 `references/bdsa_mapping.md` 對應到上游 CVE。
+參考 `references/common/bdsa_mapping.md` 對應到上游 CVE。
 
 #### 範例 5: Transitive 套件升級
 
@@ -402,11 +402,11 @@ claude -p "升級 requests 到 2.32.0，所有確認點都自動同意" \
 你可以修改 `scripts/` 中的腳本來適配特殊環境：
 
 ```bash
-# 例: 修改 detect_env.sh 支援 conda
-vim ~/.claude/skills/package-upgrade/scripts/detect_env.sh
+# 例: 修改 Python detect_env.sh 支援 conda
+vim ~/.claude/skills/package-upgrade/scripts/python/detect_env.sh
 
-# 例: 修改 JS dep tree 解析支援 pnpm
-vim ~/.claude/skills/package-upgrade/scripts/dep_tree_js.js
+# 例: 修改 JS dep tree 解析（pnpm v9 已內建支援）
+vim ~/.claude/skills/package-upgrade/scripts/javascript/dep_tree.js
 ```
 
 ---
