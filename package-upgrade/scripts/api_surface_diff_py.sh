@@ -395,9 +395,19 @@ def cap(lst, n=200):
 
 # Confidence: both trees loaded successfully and the diff produced data;
 # floor at 0.65 (vs Go apidiff's 0.9) to remind callers Python is dynamic.
-confidence = 0.65
+# Schema aligned with api_surface_diff_js.js + api_surface_diff_go.sh:
+# always emit confidence_score + confidence_basis.
 if errs:
     confidence = 0.5
+    confidence_basis = (
+        "errors during griffe enumeration; surface may be incomplete"
+    )
+else:
+    confidence = 0.65
+    confidence_basis = (
+        "griffe static enumeration; Python's dynamic introspection means "
+        "runtime-only exports (e.g. via __getattr__) may be missed"
+    )
 
 print(json.dumps({
     "package_name": pkg_name,
@@ -407,6 +417,7 @@ print(json.dumps({
     "old_source_label": f"pip install --target: {pkg_name}-{old_ver}",
     "new_source_label": f"pip install --target: {pkg_name}-{new_ver}",
     "confidence_score": confidence,
+    "confidence_basis": confidence_basis,
     "removed": cap(removed),
     "added": cap(added),
     "changed": cap(changed),

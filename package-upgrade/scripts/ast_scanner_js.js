@@ -5,8 +5,7 @@
  * Usage:
  *   node ast_scanner_js.js <project_path> <package_name>
  *
- * Output: JSON with the same top-level shape as ast_scanner.py so the LLM's
- * Phase 4 logic can be reused:
+ * Output JSON (aligned with ast_scanner.py / ast_scanner_go.go):
  *   {
  *     "scan_results": [
  *       {
@@ -20,10 +19,20 @@
  *         ]
  *       }, ...
  *     ],
- *     "total_files": N,
- *     "package_name": "axios",
- *     "language": "javascript"
+ *     "total_files":   N,        // .js/.ts files walked
+ *     "files_scanned": N,        // alias of total_files
+ *     "import_count":  N,        // total import sites across all files
+ *     "usage_count":   N,        // total usage symbols across all files
+ *     "package_name":  "axios",
+ *     "language":      "javascript",
+ *     "warnings":      [...],
+ *     "verdict":       "zero_impact" | "has_impact" | "scan_errored",
+ *     "verdict_reason":"..."
  *   }
+ *
+ * The `verdict` field lets the skill (Phase 4) short-circuit without
+ * re-deriving conclusions from the raw array. Schema first introduced
+ * in ast_scanner_go.go.
  *
  * Import patterns covered:
  *   ESM:  import X from 'pkg'                  -> esm_default
@@ -111,15 +120,19 @@ function parseFile(filepath, source) {
     }
 }
 
-function scanFile(filepath, packageName) {
+// Returns { result, parseFailed }. result is null when the file parsed but
+// contained no match; parseFailed is true when the file was unreadable or
+// the parser bailed even after fallback. Caller needs the distinction to
+// pick between `zero_impact` and `scan_errored` verdicts.
+function scanFileInternal(filepath, packageName) {
     let source;
     try {
         source = fs.readFileSync(filepath, 'utf8');
     } catch (_) {
-        return null;
+        return { result: null, parseFailed: true };
     }
     const ast = parseFile(filepath, source);
-    if (!ast) return null;
+    if (!ast) return { result: null, parseFailed: true };
     const sourceLines = source.split('\n');
 
     const imports = [];
@@ -327,11 +340,12 @@ function scanFile(filepath, packageName) {
         });
     }
 
-    if (!hasMatch) return null;
-    return { file: filepath, imports, usages };
+    if (!hasMatch) return { result: null, parseFailed: false };
+    return { result: { file: filepath, imports, usages }, parseFailed: false };
 }
 
-function walkProject(projectPath, packageName, results) {
+// Walks the project, mutating `stats` { results[], filesScanned, parseErrors }.
+function walkProject(projectPath, packageName, stats) {
     let entries;
     try {
         entries = fs.readdirSync(projectPath, { withFileTypes: true });
@@ -343,16 +357,49 @@ function walkProject(projectPath, packageName, results) {
         const full = path.join(projectPath, entry.name);
         if (entry.isDirectory()) {
             if (SKIP_DIRS.has(entry.name)) continue;
-            walkProject(full, packageName, results);
+            walkProject(full, packageName, stats);
         } else if (entry.isFile()) {
             const ext = path.extname(entry.name);
             // Skip .d.ts in the project — those are type re-exports, not usage
             if (entry.name.endsWith('.d.ts')) continue;
             if (!SOURCE_EXTS.has(ext)) continue;
-            const res = scanFile(full, packageName);
-            if (res) results.push(res);
+            stats.filesScanned += 1;
+            const { result, parseFailed } = scanFileInternal(full, packageName);
+            if (parseFailed) {
+                stats.parseErrors += 1;
+            } else if (result) {
+                stats.results.push(result);
+            }
         }
     }
+}
+
+function computeVerdict(results, filesScanned, parseErrors, packageName) {
+    const importCount = results.reduce((s, r) => s + r.imports.length, 0);
+    const usageCount = results.reduce((s, r) => s + r.usages.length, 0);
+
+    if (importCount === 0 && usageCount === 0 && parseErrors === 0) {
+        return {
+            verdict: 'zero_impact',
+            verdict_reason: `scanned ${filesScanned} source file(s); no import or usage of ${packageName} found`,
+            import_count: importCount,
+            usage_count: usageCount,
+        };
+    }
+    if (importCount === 0 && usageCount === 0 && parseErrors > 0) {
+        return {
+            verdict: 'scan_errored',
+            verdict_reason: `${parseErrors} file(s) failed to parse; no matches in the remaining ${filesScanned - parseErrors}. Treat as inconclusive.`,
+            import_count: importCount,
+            usage_count: usageCount,
+        };
+    }
+    return {
+        verdict: 'has_impact',
+        verdict_reason: `${importCount} import site(s) and ${usageCount} usage(s) found across ${results.length} file(s)`,
+        import_count: importCount,
+        usage_count: usageCount,
+    };
 }
 
 function main() {
@@ -361,13 +408,28 @@ function main() {
         process.stderr.write('Usage: node ast_scanner_js.js <project_path> <package_name>\n');
         process.exit(1);
     }
-    const results = [];
-    walkProject(projectPath, packageName, results);
+    const stats = { results: [], filesScanned: 0, parseErrors: 0 };
+    walkProject(projectPath, packageName, stats);
+
+    const { verdict, verdict_reason, import_count, usage_count } =
+        computeVerdict(stats.results, stats.filesScanned, stats.parseErrors, packageName);
+
+    const warnings = [];
+    if (stats.parseErrors > 0) {
+        warnings.push(`${stats.parseErrors} file(s) failed to parse; results may be incomplete`);
+    }
+
     process.stdout.write(JSON.stringify({
-        scan_results: results,
-        total_files: results.length,
+        scan_results: stats.results,
+        total_files: stats.filesScanned,
+        files_scanned: stats.filesScanned,
+        import_count,
+        usage_count,
         package_name: packageName,
         language: 'javascript',
+        warnings,
+        verdict,
+        verdict_reason,
     }, null, 2) + '\n');
 }
 

@@ -286,9 +286,11 @@ PY
 )
     if [ -n "$NPMRC_REGISTRIES" ]; then
         CUSTOM_REGISTRIES_JSON=$(
-            echo "$CUSTOM_REGISTRIES_JSON" | jq -c '.' 2>/dev/null
-            echo "$NPMRC_REGISTRIES" | jq -s '.' 2>/dev/null
-        | jq -s 'add' 2>/dev/null || echo "$CUSTOM_REGISTRIES_JSON")
+            {
+                echo "$CUSTOM_REGISTRIES_JSON" | jq -c '.' 2>/dev/null
+                echo "$NPMRC_REGISTRIES" | jq -s '.' 2>/dev/null
+            } | jq -s 'add' 2>/dev/null || echo "$CUSTOM_REGISTRIES_JSON"
+        )
     fi
 fi
 
