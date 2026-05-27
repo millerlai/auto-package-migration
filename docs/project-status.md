@@ -110,8 +110,3 @@ scripts/
 
 **總體成熟度**：多語言 Beta，可用於生產。建議在新環境先跑 dry-run 熟悉流程。
 
----
-
-## 📁 歷史
-
-完成的 milestone 工作清單見 [`docs/archive/`](./archive/)。
