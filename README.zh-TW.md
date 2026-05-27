@@ -20,8 +20,13 @@ bash install.sh
 
 # 驗證
 bash verify_installation.sh
+```
 
-# 觸發 skill — 在 Claude Code 中任一種寫法都可以
+裝完後，有兩種觸發方式：
+
+**A) Shell 一行觸發** — 從命令列直接帶 prompt 啟動：
+
+```bash
 claude "升級 requests 到 2.32.0"
 claude "bump axios to 1.7.0"
 claude "go get -u github.com/spf13/cobra@v1.8.0"
@@ -29,6 +34,24 @@ claude "修復 CVE-2024-35195"
 claude "V1E-148968"                                          # Jira issue key
 claude "https://trendmicro.atlassian.net/browse/V1E-148968"  # Jira URL
 ```
+
+**B) 進到 Claude Code session 內** — 用 `/package-upgrade` slash command 顯式觸發：
+
+```text
+$ claude
+> /package-upgrade 升級 requests 到 2.32.0
+> /package-upgrade 修復 CVE-2024-35195
+> /package-upgrade V1E-148968
+```
+
+或直接打自然語句，skill 的 description 會自動 match「升級 / bump / update / 修復 CVE / go get -u」這類措辭：
+
+```text
+> 升級 requests 到 2.32.0
+> 看看 django 能不能從 4.2 升到 5.1
+```
+
+想要 deterministic 觸發（例如那句話 Claude 可能誤判成一般問題）時用 `/package-upgrade`；想打快就用自然語句。
 
 Windows：`install.bat`（PowerShell）或 `install-cygwin64.sh`（Cygwin）。
 

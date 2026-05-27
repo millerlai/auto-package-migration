@@ -18,8 +18,13 @@ bash install.sh
 
 # Verify
 bash verify_installation.sh
+```
 
-# Trigger
+Two ways to invoke once installed:
+
+**A) One-shot from the shell** — start Claude with the prompt:
+
+```bash
 claude "upgrade requests to 2.32.0"
 claude "bump axios to 1.7.0"
 claude "go get -u github.com/spf13/cobra@v1.8.0"
@@ -27,6 +32,24 @@ claude "fix CVE-2024-35195"
 claude "V1E-148968"                                          # Jira issue key
 claude "https://trendmicro.atlassian.net/browse/V1E-148968"  # Jira URL
 ```
+
+**B) From inside a Claude Code session** — use the `/package-upgrade` slash command, then describe what you want:
+
+```text
+$ claude
+> /package-upgrade upgrade requests to 2.32.0
+> /package-upgrade fix CVE-2024-35195
+> /package-upgrade V1E-148968
+```
+
+Or just type the natural-language trigger; the skill description auto-matches phrases like "升級 / bump / update / fix CVE / go get -u":
+
+```text
+> upgrade requests to 2.32.0
+> can we move django from 4.2 to 5.1?
+```
+
+Use the slash form when you want explicit, deterministic invocation (e.g. a phrase Claude might otherwise interpret as a generic question). Use natural language when it's faster to type.
 
 Windows: `install.bat` (PowerShell) or `install-cygwin64.sh` (Cygwin).
 Full install / manual install / troubleshooting: **[`docs/installation.md`](docs/installation.md)**.
