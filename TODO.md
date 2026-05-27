@@ -1,4 +1,4 @@
-# TODO — 三語言 track 對等性改進
+﻿# TODO — 三語言 track 對等性改進
 
 > 本檔案聚焦於「PROJECT_STATUS.md 尚未列出、但實際影響 Python / JS / Go 三語言對等性」的結構性缺口。
 > 排序依據：低風險、純機械修補的項目優先；需要新概念設計的放後面。
@@ -13,9 +13,9 @@
 | 1.1 `detect_env.sh` Python 補欄位 | ✅ 完成 | `feat/schema-alignment` (cb07300)：加 `language` / `pkg_manager_bin` / `custom_registries`（pyproject.toml + pip.conf）/ `env_var_placeholders` / `git_remote_host` / `memory_hints` |
 | 1.2 `ast_scanner` 加 `verdict` | ✅ 完成 | `feat/schema-alignment` (cb07300)：Python + JS scanner 加 `verdict` / `verdict_reason` / `files_scanned` / `import_count` / `usage_count` / `warnings`，與 `ast_scanner_go.go` 對齊 |
 | 1.3 `api_surface_diff` confidence 統一 | ⬜ 未開始 | 依執行順序，等任務 3 補測試後再做 |
-| 2.1 `runtime_verification_{py,go}.md` | ⬜ 未開始 | — |
-| 2.2 `python_override_semantics.md` + `js_override_semantics.md` | ⬜ 未開始 | — |
-| 2.3 `breaking_change_patterns_py.md` | ⬜ 未開始 | — |
+| 2.1 `runtime_verification_{py,go}.md` | ✅ 完成 | `docs/multi-lang-references`：兩份新文件覆蓋 T1-import / T1-cli / T2-web / T2-data (py)、T1-build / T1-cli / T2-server (go)。SKILL.md Phase 0.2 對應段落已連到新文件 |
+| 2.2 `python_override_semantics.md` + `js_override_semantics.md` | ✅ 完成 | `docs/multi-lang-references`：Python 涵蓋 pip-tools / poetry / uv 三套；JS 涵蓋 npm / yarn 1 / yarn 3+ / pnpm / bun 五套。SKILL.md Phase 0.2 各 path 段落已連結 |
+| 2.3 `breaking_change_patterns_py.md` | ✅ 完成 | `docs/multi-lang-references`：Python 慣例（`@deprecated` / `__getattr__` / async/sync / C ext ABI / pickle / pkg_resources 等）；含 Phase 4 修法 cookbook |
 | 3.1 JS helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_js.py` (8 tests, all pass) + `test_detect_env_js.py` (5 pass, 1 skip on Windows)。`test_dep_tree_js.py` + `test_api_surface_diff_js.py` 留下個 PR。 |
 | 3.2 Go helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_go.py` (7 tests) + `test_detect_env_go.py` (5 tests)。本地無 Go 全 skip；CI 會跑。`test_api_surface_diff_go.py` 留下個 PR。 |
 | 3.3 共用 bash helper 煙霧測試 | ⬜ 未開始 | — |
@@ -39,13 +39,13 @@
 |---|--------|------|------|
 | 1 | `feat/schema-alignment` | master | 任務 1.1 + 1.2（schema 對齊基礎） |
 | 2 | `test/js-go-helper-pytest` | #1 | 任務 3.1 + 3.2 部分完成（守 #1 新增的 schema 欄位）+ `detect_env_js.sh` syntax fix + CI 加 Node/Go toolchain |
-| 3 | `docs/multi-lang-references` *(規劃中)* | master 或 #1 | 任務 2.1 / 2.2 / 2.3（純文件，零回歸風險，可平行） |
+| 3 | `docs/multi-lang-references` | #1 | 任務 2.1 / 2.2 / 2.3（純文件，零回歸風險，可平行 #2） |
 | 4 | `test/dep-tree-api-surface-pytest` *(規劃中)* | #2 | 任務 3.1 / 3.2 補完（`test_dep_tree_js`、`test_api_surface_diff_*`） |
 | 5 | `feat/api-surface-confidence` *(規劃中)* | #4 | 任務 1.3（confidence 統一，需要 #4 的測試守門） |
 | 6 | `test/bash-helper-smoke` *(規劃中)* | #5 | 任務 3.3（剩餘 bash helper 煙霧測試） |
 | 7 | `feat/pnpm-support` *(規劃中)* | #6 | 任務 4（pnpm 完整支援，最大塊獨立工作） |
 
-#3 可與 #2 / #4 / #5 平行處理，因為只動 `references/*.md`。其餘必須依序 merge。
+#3 與 #2 平行；#2 / #3 同時動到 `TODO.md` 進度欄位，merge 時可能要手動合併 ✅ marker（merge order 表本身相同，不衝突）。其餘必須依序 merge。
 
 ---
 
