@@ -87,14 +87,14 @@ This project uses **UV** for its own dev environment. The helper scripts under `
 uv sync
 
 # Run a helper script during development
-uv run python package-upgrade/scripts/dep_tree.py . requests
-uv run python package-upgrade/scripts/ast_scanner.py . requests
+uv run python package-upgrade/scripts/python/dep_tree.py . requests
+uv run python package-upgrade/scripts/python/ast_scanner.py . requests
 
 # Format / lint / type-check (settings in pyproject.toml: black line-length=100, ruff target=py38)
 uv run black package-upgrade/scripts/
 uv run ruff check package-upgrade/scripts/
 uv run ruff check --fix package-upgrade/scripts/
-uv run mypy package-upgrade/scripts/*.py
+uv run mypy package-upgrade/scripts/python/*.py
 
 # Tests (no tests exist yet — pytest config in pyproject.toml expects tests/)
 uv run pytest
@@ -108,7 +108,7 @@ bash install.sh --skip-permissions   # skip writing to Claude Code settings.json
 bash verify_installation.sh
 ```
 
-The JS helpers (`scripts/dep_tree_js.js`, `scripts/api_surface_diff_js.js`, etc.) have their **own** `package.json` at `package-upgrade/scripts/package.json` — `install.sh` runs `npm install` inside that directory. `package-upgrade/scripts/node_modules/` is gitignored.
+The JS helpers (`scripts/javascript/dep_tree.js`, `scripts/javascript/api_surface_diff.js`, etc.) have their **own** `package.json` at `package-upgrade/scripts/javascript/package.json` — `install.sh` runs `npm install` inside that directory. `package-upgrade/scripts/javascript/node_modules/` is gitignored.
 
 ## Architecture you need before editing
 
@@ -156,15 +156,43 @@ Phase 0 of `SKILL.md` picks the language (detection order: **Go > JS > Python**)
 ### Two non-obvious invariants worth knowing
 
 - **`pkg_manager_bin`** (from `detect_env_js.sh`) — corepack-managed yarn is **not** in PATH; the detected binary path (e.g. `node .yarn/releases/yarn-3.8.2.cjs`) must be used everywhere. Don't hardcode `yarn` / `npm` in new scripts.
-- **Dependency-file updates are tool-specific** — see `references/IMPORTANT_DEPENDENCY_UPDATE.md`. Most critical: use `poetry add pkg@version` (not `poetry update`) and `uv add "pkg>=version"` (not `uv lock --upgrade-package`) — both `update` / `--upgrade-package` only touch the lockfile and leave `pyproject.toml` stale. Plain `pip` requires **manual** editing of `requirements.txt` / `pyproject.toml`.
+- **Dependency-file updates are tool-specific** — see `references/common/important_dependency_update.md`. Most critical: use `poetry add pkg@version` (not `poetry update`) and `uv add "pkg>=version"` (not `uv lock --upgrade-package`) — both `update` / `--upgrade-package` only touch the lockfile and leave `pyproject.toml` stale. Plain `pip` requires **manual** editing of `requirements.txt` / `pyproject.toml`.
 
 ### References are loaded lazily
 
-`SKILL.md` does not inline every detail — it directs Claude to read specific files under `references/` on demand (e.g. only read `references/jira_workflow.md` when Phase 1 mode C is hit, only read `references/go_major_version_paths.md` when a Go v1→v2 jump is detected). When adding a new pattern that is large or rarely needed, prefer adding a new `references/*.md` and a one-line pointer in `SKILL.md` over inlining.
+`SKILL.md` does not inline every detail — it directs Claude to read specific files under `references/` on demand (e.g. only read `references/common/jira_workflow.md` when Phase 1 mode C is hit, only read `references/go/major_version_paths.md` when a Go v1→v2 jump is detected). When adding a new pattern that is large or rarely needed, prefer adding a new `references/<lang>/*.md` and a one-line pointer in `SKILL.md` over inlining.
 
 ## Conventions for scripts
 
 - **Python**: `#!/usr/bin/env python3` shebang, type hints, JSON to stdout / errors to stderr, black + ruff clean, target Python 3.8.
 - **Bash**: `#!/usr/bin/env bash` + `set -euo pipefail`, errors to stderr (`>&2`), use `jq` for JSON.
-- **JS**: helpers live in `package-upgrade/scripts/`, deps declared in the inner `package.json`.
+- **JS**: helpers live in `package-upgrade/scripts/javascript/`, deps declared in the inner `package.json`.
 - **All**: chmod +x after creation — `install.sh` does this on install but local `uv run` and `bash` need it during development.
+
+## Design intent (the "why" behind the architecture)
+
+A condensed summary of the design decisions baked into this skill. Useful when extending the skill — these are the rationale to keep in mind, not arbitrary preferences.
+
+### v3 (current) vs v2 (former design)
+
+The skill started as a standalone Python application with LangGraph orchestrating Claude API calls between phases (v2). It was rewritten as a Claude Code Skill (v3) once we realized the host **is** Claude — so calling out to the API on every phase boundary was paying twice for the same model. The current architecture: SKILL.md tells Claude (the host) what to do; helper scripts produce deterministic JSON; Claude reasons over the JSON in-process. **Zero extra API calls, zero deployment complexity.**
+
+### Decisions you'll meet again when extending
+
+| Decision | Choice | Why |
+|---|---|---|
+| Architecture form | Claude Code Skill (not standalone agent) | Host IS the LLM — no need to bridge out to the API |
+| Distribution | `git clone` + file copy | Transparent; users can edit their own scripts |
+| Install location | `~/.claude/skills/` by default | All projects share one install |
+| Prereqs | Minimal (`pipdeptree` + `requests` + `jq`) | Low install friction |
+| Deterministic work | Helper scripts (bash / py / js / go) | AST scans, dep-tree parses, lockfile parses demand exact tools |
+| Reasoning work | Claude native | Changelog interpretation, diff semantics, test-failure diagnostics |
+| User confirmation | Natural conversation pause | No interrupt API needed — Claude stops to ask the user |
+| Breaking change | Changelog + Git diff dual track | They cover different cases; Claude merges and de-duplicates |
+| Code modification | AST locates + Claude generates patches | AST is precise about *where*; Claude understands *what* to change |
+| Test modifications | Always require user confirmation | Tests are the quality gate — explain *why* before changing them |
+| Rollback | `snapshot_env.sh` (filesystem backup) | Boring beats clever for recovery paths |
+| Report generation | Free-form Claude prose | Template-fill is less insightful and harder to read |
+| References | Lazy-loaded per phase | Keeps Claude's context small until the relevant decision arises |
+
+These are the load-bearing decisions. The 7-phase pipeline structure, the language-fan-out pattern, and the deterministic-vs-reasoning split all derive from them.
