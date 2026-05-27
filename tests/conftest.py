@@ -16,10 +16,18 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = ROOT / "package-upgrade" / "scripts"
 
-# Order matters: scripts dir first so its modules win over any same-named
-# stdlib shadows; root second for grant_permissions.py at the repo root.
+# After the per-language reorg, importable Python modules live under
+# scripts/{common,python}/. We add both to sys.path so existing tests
+# can keep their bare `import ast_scanner` / `import fetch_changelog` style.
+#
+# scripts/go/ is NOT on sys.path: its dep_tree.py would shadow
+# scripts/python/dep_tree.py. test_dep_tree_go.py loads it explicitly via
+# importlib instead.
+#
+# Order matters: scripts dirs first so their modules win over any same-named
+# stdlib shadows; root last for grant_permissions.py at the repo root.
 # Insert in reverse because each path is prepended at index 0.
-for p in (ROOT, SCRIPTS_DIR):
+for p in (ROOT, SCRIPTS_DIR, SCRIPTS_DIR / "common", SCRIPTS_DIR / "python"):
     sp = str(p)
     if sp not in sys.path:
         sys.path.insert(0, sp)
@@ -65,12 +73,14 @@ def bash_bin() -> str:
 
 @pytest.fixture(scope="session")
 def js_deps_installed(scripts_dir: Path, node_bin: str) -> bool:
-    """Skip the test if @babel/parser is missing from scripts/node_modules.
+    """Skip the test if @babel/parser is missing from scripts/javascript/node_modules.
 
-    The JS helpers ship with their own package.json; install.sh runs
-    `npm install` there. Tests should not silently fail when that step
-    was skipped.
+    The JS helpers ship with their own package.json under scripts/javascript/;
+    install.sh runs `npm install` there. Tests should not silently fail when
+    that step was skipped.
     """
-    if not (scripts_dir / "node_modules" / "@babel" / "parser").exists():
-        pytest.skip("JS helper deps not installed (run `npm install` in scripts/)")
+    if not (scripts_dir / "javascript" / "node_modules" / "@babel" / "parser").exists():
+        pytest.skip(
+            "JS helper deps not installed (run `npm install` in scripts/javascript/)"
+        )
     return True

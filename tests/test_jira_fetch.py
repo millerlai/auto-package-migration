@@ -1,4 +1,4 @@
-"""Tests for package-upgrade/scripts/jira_fetch.py."""
+"""Tests for package-upgrade/scripts/common/jira_fetch.py."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

@@ -1,7 +1,7 @@
 # Python Breaking Change Patterns
 
-> 對應 JS 的 `breaking_change_patterns_js.md` / Go 的 `breaking_change_patterns_go.md`。
-> 通用語言無關規則仍放在 `breaking_change_patterns.md`，本檔放 Python 慣例。
+> 對應 JS 的 `../javascript/breaking_change_patterns.md` / Go 的 `../go/breaking_change_patterns.md`。
+> 通用語言無關規則仍放在 `../common/breaking_change_patterns.md`，本檔放 Python 慣例。
 
 ---
 
@@ -173,7 +173,7 @@ pickle cache。
 ## 為什麼有這份文件
 
 JS / Go 各有專屬的 breaking_change_patterns，Python 一直只有通用版
-`breaking_change_patterns.md`，缺 `@deprecated` / `__getattr__` / async/sync 切換 / C ext ABI
+`../common/breaking_change_patterns.md`，缺 `@deprecated` / `__getattr__` / async/sync 切換 / C ext ABI
 等 Python 慣例（TODO.md 任務 2.3）。Phase 3 報告 Python 升級時，本檔提供：
 
 1. changelog 措辭辭典（語意分析的 anchor）

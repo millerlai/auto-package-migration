@@ -1,4 +1,4 @@
-"""Tests for package-upgrade/scripts/parse_pm_errors.py."""
+"""Tests for package-upgrade/scripts/common/parse_pm_errors.py."""
 from __future__ import annotations
 
 import parse_pm_errors as ppe

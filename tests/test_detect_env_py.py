@@ -32,7 +32,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
 
 
 def _run(bash_bin: str, scripts_dir: Path, project: Path) -> dict:
-    script = scripts_dir / "detect_env.sh"
+    script = scripts_dir / "python" / "detect_env.sh"
     result = subprocess.run(
         [bash_bin, str(script), str(project)],
         capture_output=True,

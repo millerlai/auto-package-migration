@@ -153,7 +153,7 @@ ls -la ~/.claude/skills/package-upgrade/scripts/
 
 ```bash
 # Python 環境偵測
-bash ~/.claude/skills/package-upgrade/scripts/detect_env.sh .
+bash ~/.claude/skills/package-upgrade/scripts/python/detect_env.sh .
 
 # 應該輸出 JSON，例:
 # {
@@ -165,16 +165,16 @@ bash ~/.claude/skills/package-upgrade/scripts/detect_env.sh .
 
 ```bash
 # JS 環境偵測 (在 JS 專案根目錄)
-bash ~/.claude/skills/package-upgrade/scripts/detect_env_js.sh .
+bash ~/.claude/skills/package-upgrade/scripts/javascript/detect_env.sh .
 
 # Go 環境偵測 (在 Go 專案根目錄)
-bash ~/.claude/skills/package-upgrade/scripts/detect_env_go.sh .
+bash ~/.claude/skills/package-upgrade/scripts/go/detect_env.sh .
 ```
 
 ```bash
 # 測試 dep_tree.py / ast_scanner.py
-python3 ~/.claude/skills/package-upgrade/scripts/dep_tree.py . requests
-python3 ~/.claude/skills/package-upgrade/scripts/ast_scanner.py . requests
+python3 ~/.claude/skills/package-upgrade/scripts/python/dep_tree.py . requests
+python3 ~/.claude/skills/package-upgrade/scripts/python/ast_scanner.py . requests
 ```
 
 #### 2.5 檢查 Python 依賴

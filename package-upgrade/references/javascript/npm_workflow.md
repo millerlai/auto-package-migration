@@ -1,6 +1,6 @@
 # npm 工作流程（package-upgrade JS path）
 
-> 對應 Python 的 `pip_workflow.md` / `poetry_workflow.md` / `uv_workflow.md`。
+> 對應 Python 的 `../python/pip_workflow.md` / `../python/poetry_workflow.md` / `../python/uv_workflow.md`。
 
 ## 關鍵差異（vs pip）
 
@@ -16,7 +16,7 @@
 ### 直接依賴 (`dependencies`)
 
 ```bash
-# 預設加 --ignore-scripts (見 js_workflow.md 的警告章節)
+# 預設加 --ignore-scripts (見 workflow.md 的警告章節)
 npm install <package>@<version> --save --ignore-scripts
 
 # 範例

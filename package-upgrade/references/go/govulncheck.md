@@ -164,7 +164,7 @@ bash scripts/govulncheck_go.sh <project_path> --cve CVE-2024-24786 --post-upgrad
 ## 限制
 
 1. **govulncheck 只認 Go vulnerability database (OSV)** — 自定義 CVE / BDSA 要先用
-   `bdsa_mapping.md` 流程轉成 GO-ID 或對應的 CVE
+   `../common/bdsa_mapping.md` 流程轉成 GO-ID 或對應的 CVE
 2. **Call graph 是靜態分析** — 動態 reflection / plugin 走不到的部分可能漏報
 3. **build tags 影響** — 預設只掃 default build，要其他 OS / 環境要設定 `GOOS=...`
 4. **vendor mode** — govulncheck 支援，但需要 vendor 是最新的（先 `go mod vendor`）

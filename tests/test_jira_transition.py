@@ -1,4 +1,4 @@
-"""Tests for package-upgrade/scripts/jira_transition.py."""
+"""Tests for package-upgrade/scripts/common/jira_transition.py."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

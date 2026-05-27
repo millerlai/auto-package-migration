@@ -1,6 +1,6 @@
 # JavaScript / TypeScript Breaking Change Patterns
 
-> 對應 Python 的 `breaking_change_patterns.md`。
+> 對應 Python 的 `../python/breaking_change_patterns.md`、Go 的 `../go/breaking_change_patterns.md`，通用版見 `../common/breaking_change_patterns.md`。
 
 ## Changelog / Release Notes 措辭
 

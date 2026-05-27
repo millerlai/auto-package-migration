@@ -1,19 +1,18 @@
 # JavaScript / TypeScript Workflow
 
 > Phase 0 偵測到 `language: "javascript"` 時，整個流程改走這份文件 +
-> `npm_workflow.md` / (未來) `yarn_workflow.md` 等。
+> `npm_workflow.md` / `yarn_workflow.md` / `pnpm_workflow.md` 之一（同資料夾）。
 
 ## 觸發後讀什麼
 
 | 套件管理工具 | reference |
 |--------------|-----------|
-| npm          | `references/npm_workflow.md` |
-| yarn (含 yarn 3 Berry) | `references/yarn_workflow.md` |
-| pnpm         | `references/pnpm_workflow.md` |
+| npm          | `npm_workflow.md` |
+| yarn (含 yarn 3 Berry) | `yarn_workflow.md` |
+| pnpm         | `pnpm_workflow.md` |
 | bun          | (後續 stage 尚未支援；`bun.lock` 為二進位格式，dep_tree 無法 robust 解析) |
 
-JS path **必讀** `references/js_ast_strategy.md` 與
-`references/breaking_change_patterns_js.md`。
+JS path **必讀** `ast_strategy.md` 與 `breaking_change_patterns.md`（同資料夾）。
 
 ---
 
@@ -21,15 +20,15 @@ JS path **必讀** `references/js_ast_strategy.md` 與
 
 | Phase | Helper | 與 Python path 的差異 |
 |-------|--------|----------------------|
-| 0 環境偵測 | `scripts/detect_env_js.sh` | 輸出含 `language`, `pkg_manager`, `has_typescript`, `is_workspace`, `test_framework_hint` |
+| 0 環境偵測 | `scripts/javascript/detect_env.sh` | 輸出含 `language`, `pkg_manager`, `has_typescript`, `is_workspace`, `test_framework_hint` |
 | 1 輸入解析 | （無 JS 專屬） | Jira / CVE 流程完全沿用 |
-| 2 依賴分析 | `scripts/dep_tree_js.js` | 多一個 `is_peer` flag 與 `peer` dependency_type |
-| 3 Breaking change | `scripts/api_surface_diff_js.js` + `scripts/git_diff_js.sh` + `scripts/fetch_changelog.py` | **三軌**：`.d.ts` API surface diff (新增) + Git diff 過濾 `*.{js,ts,jsx,tsx,d.ts}` + Changelog |
-| 4 程式碼影響 | `scripts/ast_scanner_js.js` | 使用 `@babel/parser` + `@babel/traverse`；symbol 命名規則見下方 |
+| 2 依賴分析 | `scripts/javascript/dep_tree.js` | 多一個 `is_peer` flag 與 `peer` dependency_type |
+| 3 Breaking change | `scripts/javascript/api_surface_diff.js` + `scripts/javascript/git_diff.sh` + `scripts/common/fetch_changelog.py` | **三軌**：`.d.ts` API surface diff (新增) + Git diff 過濾 `*.{js,ts,jsx,tsx,d.ts}` + Changelog |
+| 4 程式碼影響 | `scripts/javascript/ast_scanner.js` | 使用 `@babel/parser` + `@babel/traverse`；symbol 命名規則見下方 |
 | 5 執行升級 | `npm install <pkg>@<ver>` / `npm install <pkg>@<ver> --save-peer` | `npm install` 會自動寫回 `package.json` 與 `package-lock.json` — 與 pip 不同；**預設加 `--ignore-scripts`** |
-| 0.5 Runtime baseline (optional) | `scripts/runtime_verify_js.js --mode baseline` | **JS 專屬**；偵測 web app → 升前抓 dev server boot + HTTP probe + (T2) console errors，作為 Step 6.6 的對照組。詳見 `references/runtime_verification_js.md`。 |
-| 6 測試 | `scripts/run_tests_js.sh` | Auto-detect jest / vitest / mocha / node:test |
-| 6.6 Runtime verify (僅 0.5 抓了 baseline) | `scripts/runtime_verify_js.js --mode verify` | 重跑同一指令，diff baseline → 標出新出現的 stderr / console / HTTP / render regression |
+| 0.5 Runtime baseline (optional) | `scripts/javascript/runtime_verify.js --mode baseline` | **JS 專屬**；偵測 web app → 升前抓 dev server boot + HTTP probe + (T2) console errors，作為 Step 6.6 的對照組。詳見 `runtime_verification.md`。 |
+| 6 測試 | `scripts/javascript/run_tests.sh` | Auto-detect jest / vitest / mocha / node:test |
+| 6.6 Runtime verify (僅 0.5 抓了 baseline) | `scripts/javascript/runtime_verify.js --mode verify` | 重跑同一指令，diff baseline → 標出新出現的 stderr / console / HTTP / render regression |
 | 7 報告 / commit / PR / Jira | 沿用既有模板 | Report 多一節：**API Surface Diff 來源**；若跑了 0.5/6.6 再多一節 **Runtime Verification** |
 
 ---

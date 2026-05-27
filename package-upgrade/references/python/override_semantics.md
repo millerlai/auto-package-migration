@@ -2,7 +2,7 @@
 
 > 這份文件統整 pip / poetry / uv 三種工具強制升降 transitive dependency 的語法與
 > 約束。Phase 2 在挑選策略 `bump_override` 時應引用本檔。對應 Go 的
-> `go_replace_semantics.md`，但 Python 生態更分歧。
+> `../go/replace_semantics.md`，但 Python 生態更分歧。
 
 ---
 
@@ -195,7 +195,7 @@ my-fork = { git = "https://github.com/me/forked.git", rev = "abcdef" }
 
 ## 為什麼有這份文件
 
-Go 有 `go_replace_semantics.md` 統整 replace 語意，但 Python 對應的 override 知識散落
+Go 有 `../go/replace_semantics.md` 統整 replace 語意，但 Python 對應的 override 知識散落
 在 `pip_workflow.md` / `poetry_workflow.md` / `uv_workflow.md`，使用者要在三個檔案間
 跳。本文件統整 Python 三套工具的 override 寫法，並對應到 Phase 2 策略表，
 讓 `bump_override` 策略可被機械化選擇（TODO.md 任務 2.2）。

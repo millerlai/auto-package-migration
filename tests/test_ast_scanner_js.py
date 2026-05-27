@@ -27,7 +27,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
 
 
 def _run(node_bin: str, scripts_dir: Path, project: Path, package: str) -> dict:
-    script = scripts_dir / "ast_scanner_js.js"
+    script = scripts_dir / "javascript" / "ast_scanner.js"
     result = subprocess.run(
         [node_bin, str(script), str(project), package],
         capture_output=True,

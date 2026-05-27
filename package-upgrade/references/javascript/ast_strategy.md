@@ -146,7 +146,7 @@ node scripts/ast_scanner_js.js <project_path> <package_name>
 輸出 JSON schema 與 Python `ast_scanner.py` 相同（`scan_results` / `imports` / `usages`），
 LLM Phase 4 邏輯可直接重用。
 
-Symbol 命名規則見 `js_workflow.md` 的對照表 — 與 `api_surface_diff_js.js` 用同一套
+Symbol 命名規則見 `workflow.md` 的對照表 — 與 `scripts/javascript/api_surface_diff.js` 用同一套
 命名規則，所以兩邊產出的 symbol set 可以直接做集合運算找出 affected usages。
 
 ### 常見「假陽性」

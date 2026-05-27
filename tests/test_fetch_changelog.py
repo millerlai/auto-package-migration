@@ -1,4 +1,4 @@
-"""Tests for package-upgrade/scripts/fetch_changelog.py."""
+"""Tests for package-upgrade/scripts/common/fetch_changelog.py."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch

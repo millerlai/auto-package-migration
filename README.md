@@ -349,21 +349,21 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Sync deps (creates .venv/, installs editable project)
 uv sync
 
-# Run a helper
-uv run python package-upgrade/scripts/dep_tree.py . requests
-uv run python package-upgrade/scripts/ast_scanner.py . requests
+# Run a helper (scripts are now organized by language: common / python / javascript / go)
+uv run python package-upgrade/scripts/python/dep_tree.py . requests
+uv run python package-upgrade/scripts/python/ast_scanner.py . requests
 
 # Format / lint / type-check
 uv run black package-upgrade/scripts/
 uv run ruff check --fix package-upgrade/scripts/
-uv run mypy package-upgrade/scripts/*.py
+uv run mypy package-upgrade/scripts/python/*.py
 
 # Tests
 uv run pytest
 uv run pytest --cov=package-upgrade --cov-report=html
 ```
 
-JS helpers have their own `package.json` at `package-upgrade/scripts/package.json` — `install.sh` runs `npm install` inside that directory. `scripts/node_modules/` is gitignored.
+JS helpers have their own `package.json` at `package-upgrade/scripts/javascript/package.json` — `install.sh` runs `npm install` inside that directory. `scripts/javascript/node_modules/` is gitignored.
 
 More detail in `DEVELOPMENT.md` and `package-upgrade-agent-architecture.md`.
 

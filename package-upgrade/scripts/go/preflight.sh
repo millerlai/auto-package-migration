@@ -22,7 +22,7 @@ JSON_MODE="false"
 if [ "${2:-}" = "--json" ]; then JSON_MODE="true"; fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DETECT="$SCRIPT_DIR/detect_env_go.sh"
+DETECT="$SCRIPT_DIR/detect_env.sh"
 
 if [ ! -x "$DETECT" ]; then
     echo "ERROR: detect_env_go.sh not found at $DETECT" >&2

@@ -26,10 +26,10 @@ JSON_MODE="false"
 if [ "${2:-}" = "--json" ]; then JSON_MODE="true"; fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DETECT="$SCRIPT_DIR/detect_env_js.sh"
+DETECT="$SCRIPT_DIR/detect_env.sh"
 
 if [ ! -x "$DETECT" ]; then
-    echo "ERROR: detect_env_js.sh not found at $DETECT" >&2
+    echo "ERROR: detect_env.sh not found at $DETECT" >&2
     exit 1
 fi
 

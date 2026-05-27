@@ -21,7 +21,7 @@ import pytest
 
 
 def _run(node_bin: str, scripts_dir: Path, *args: str) -> subprocess.CompletedProcess:
-    script = scripts_dir / "api_surface_diff_js.js"
+    script = scripts_dir / "javascript" / "api_surface_diff.js"
     return subprocess.run(
         [node_bin, str(script), *args],
         capture_output=True,

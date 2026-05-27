@@ -167,6 +167,6 @@ Phase 7 報告的 `## Runtime Verification` 段落：
 
 ## 為什麼有這份文件
 
-`runtime_verification_js.md` 已存在多時，Go track 一直缺對等覆蓋（TODO.md 任務 2.1）。
+`../javascript/runtime_verification.md` 已存在多時，Go track 一直缺對等覆蓋（TODO.md 任務 2.1）。
 Go 的 build-time 檢查雖然強，但 `init()` order、`embed` 資源、cgo ABI、server 啟動期
 reflection 註冊等仍要 runtime 才會浮現問題；T1-build 不夠，需要 T1-cli / T2-server 補上。

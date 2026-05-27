@@ -19,7 +19,7 @@ import pytest
 
 
 def _run(bash_bin: str, scripts_dir: Path, *args: str) -> subprocess.CompletedProcess:
-    script = scripts_dir / "api_surface_diff_go.sh"
+    script = scripts_dir / "go" / "api_surface_diff.sh"
     return subprocess.run(
         [bash_bin, str(script), *args],
         capture_output=True,

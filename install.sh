@@ -118,14 +118,15 @@ for skill in "${SKILLS[@]}"; do
 done
 
 # 設定執行權限
+# scripts/ now contains per-language subdirs (common/python/javascript/go),
+# so chmod must recurse rather than glob at the top level.
 echo ""
 echo -e "${BLUE}步驟 3/8: 設定執行權限${NC}"
 for skill in "${SKILLS[@]}"; do
     SKILL_PATH="$SKILLS_ROOT/$skill"
     [ -d "$SKILL_PATH/scripts" ] || continue
-    chmod +x "$SKILL_PATH"/scripts/*.sh 2>/dev/null || true
-    chmod +x "$SKILL_PATH"/scripts/*.py 2>/dev/null || true
-    chmod +x "$SKILL_PATH"/scripts/*.js 2>/dev/null || true
+    find "$SKILL_PATH/scripts" \( -name '*.sh' -o -name '*.py' -o -name '*.js' \) \
+        -exec chmod +x {} + 2>/dev/null || true
 done
 echo -e "${GREEN}✓ 執行權限已設定${NC}"
 
@@ -175,13 +176,13 @@ elif ! command -v npm >/dev/null 2>&1; then
 else
     NODE_VER=$(node --version 2>/dev/null || echo "unknown")
     echo "  node 版本: $NODE_VER"
-    if [ -f "$TARGET_DIR/scripts/package.json" ]; then
+    if [ -f "$TARGET_DIR/scripts/javascript/package.json" ]; then
         echo "  安裝 @babel/parser, @babel/traverse, ts-morph, semver..."
-        (cd "$TARGET_DIR/scripts" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1) && \
-            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/node_modules${NC}" || \
-            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts && npm install${NC}"
+        (cd "$TARGET_DIR/scripts/javascript" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1) && \
+            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/javascript/node_modules${NC}" || \
+            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts/javascript && npm install${NC}"
     else
-        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/package.json,跳過 Node 依賴安裝${NC}"
+        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/javascript/package.json,跳過 Node 依賴安裝${NC}"
     fi
 fi
 
