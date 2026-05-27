@@ -1,4 +1,4 @@
-"""Tests for the pure-function layer of package-upgrade/scripts/dep_tree_go.py.
+"""Tests for the pure-function layer of package-upgrade/scripts/go/dep_tree.py.
 
 Subprocess-driven Go calls aren't exercised here — they need a real `go`
 toolchain. We focus on the deterministic helpers: path/version manipulation
@@ -6,9 +6,17 @@ and the `go.mod` parser.
 """
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
-import dep_tree_go as dtg
+# Load scripts/go/dep_tree.py explicitly — it can't sit on sys.path because
+# scripts/python/dep_tree.py would shadow it under the same module name.
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "package-upgrade" / "scripts"
+_spec = importlib.util.spec_from_file_location(
+    "dep_tree_go", _SCRIPTS_DIR / "go" / "dep_tree.py"
+)
+dtg = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(dtg)
 
 # --------------------------------------------------------------------------- #
 # strip_major_suffix

@@ -33,7 +33,7 @@ jobs:
           node-version: "20"
 
       - name: Install JS helper deps
-        working-directory: package-upgrade/scripts
+        working-directory: package-upgrade/scripts/javascript
         run: npm ci
 
       - name: Set up Go

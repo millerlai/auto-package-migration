@@ -1,9 +1,9 @@
-"""Smoke tests for snapshot_env*.sh — save / restore / clean.
+"""Smoke tests for snapshot_env.sh — save / restore / clean.
 
-Covers the three language variants:
-- snapshot_env.sh    (Python)
-- snapshot_env_js.sh (JS / TS)
-- snapshot_env_go.sh (Go)
+Covers the three language variants under their respective folders:
+- scripts/python/snapshot_env.sh
+- scripts/javascript/snapshot_env.sh
+- scripts/go/snapshot_env.sh
 
 Each script must support the same save → mutate → restore round-trip so
 Phase 5 rollback works reliably across languages.
@@ -58,7 +58,7 @@ def _make_go_project(project: Path) -> Path:
 
 def test_snapshot_env_py_save_creates_snapshot_dir(bash_bin, scripts_dir, tmp_path: Path):
     project = _make_python_project(tmp_path)
-    result = _run(bash_bin, scripts_dir / "snapshot_env.sh", project, "save")
+    result = _run(bash_bin, scripts_dir / "python" / "snapshot_env.sh", project, "save")
     assert result.returncode == 0
     assert (project / ".upgrade_snapshot").is_dir()
     assert (project / ".upgrade_snapshot" / "requirements.txt").is_file()
@@ -68,11 +68,11 @@ def test_snapshot_env_py_restore_undoes_mutation(bash_bin, scripts_dir, tmp_path
     project = _make_python_project(tmp_path)
     original = (project / "requirements.txt").read_text()
 
-    _run(bash_bin, scripts_dir / "snapshot_env.sh", project, "save")
+    _run(bash_bin, scripts_dir / "python" / "snapshot_env.sh", project, "save")
     # Mutate the file
     (project / "requirements.txt").write_text("requests==2.32.0\n")
     # Restore
-    result = _run(bash_bin, scripts_dir / "snapshot_env.sh", project, "restore")
+    result = _run(bash_bin, scripts_dir / "python" / "snapshot_env.sh", project, "restore")
     assert result.returncode == 0
     assert (project / "requirements.txt").read_text() == original
 
@@ -89,7 +89,7 @@ def test_snapshot_env_py_restore_undoes_mutation(bash_bin, scripts_dir, tmp_path
 
 def test_snapshot_env_js_save_reports_success(bash_bin, scripts_dir, tmp_path: Path):
     project = _make_js_project(tmp_path)
-    result = _run(bash_bin, scripts_dir / "snapshot_env_js.sh", project, "save")
+    result = _run(bash_bin, scripts_dir / "javascript" / "snapshot_env.sh", project, "save")
     assert result.returncode == 0
     # The script logs to stderr; "saved" appears once the snapshot is committed.
     assert "saved" in result.stderr.lower()
@@ -99,17 +99,17 @@ def test_snapshot_env_js_restore_undoes_mutation(bash_bin, scripts_dir, tmp_path
     project = _make_js_project(tmp_path)
     original = (project / "package.json").read_text()
 
-    _run(bash_bin, scripts_dir / "snapshot_env_js.sh", project, "save")
+    _run(bash_bin, scripts_dir / "javascript" / "snapshot_env.sh", project, "save")
     (project / "package.json").write_text('{"name":"x","version":"9.9.9"}')
-    result = _run(bash_bin, scripts_dir / "snapshot_env_js.sh", project, "restore")
+    result = _run(bash_bin, scripts_dir / "javascript" / "snapshot_env.sh", project, "restore")
     assert result.returncode == 0
     assert (project / "package.json").read_text() == original
 
 
 def test_snapshot_env_js_clean_exits_cleanly(bash_bin, scripts_dir, tmp_path: Path):
     project = _make_js_project(tmp_path)
-    _run(bash_bin, scripts_dir / "snapshot_env_js.sh", project, "save")
-    result = _run(bash_bin, scripts_dir / "snapshot_env_js.sh", project, "clean")
+    _run(bash_bin, scripts_dir / "javascript" / "snapshot_env.sh", project, "save")
+    result = _run(bash_bin, scripts_dir / "javascript" / "snapshot_env.sh", project, "clean")
     assert result.returncode == 0
 
 
@@ -120,7 +120,7 @@ def test_snapshot_env_js_clean_exits_cleanly(bash_bin, scripts_dir, tmp_path: Pa
 
 def test_snapshot_env_go_save_reports_success(bash_bin, scripts_dir, tmp_path: Path):
     project = _make_go_project(tmp_path)
-    result = _run(bash_bin, scripts_dir / "snapshot_env_go.sh", project, "save")
+    result = _run(bash_bin, scripts_dir / "go" / "snapshot_env.sh", project, "save")
     assert result.returncode == 0
     assert "saved" in result.stderr.lower()
 
@@ -129,9 +129,9 @@ def test_snapshot_env_go_restore_undoes_mutation(bash_bin, scripts_dir, tmp_path
     project = _make_go_project(tmp_path)
     original = (project / "go.mod").read_text()
 
-    _run(bash_bin, scripts_dir / "snapshot_env_go.sh", project, "save")
+    _run(bash_bin, scripts_dir / "go" / "snapshot_env.sh", project, "save")
     (project / "go.mod").write_text("module example.com/changed\n\ngo 1.22\n")
-    result = _run(bash_bin, scripts_dir / "snapshot_env_go.sh", project, "restore")
+    result = _run(bash_bin, scripts_dir / "go" / "snapshot_env.sh", project, "restore")
     assert result.returncode == 0
     assert (project / "go.mod").read_text() == original
 
@@ -142,19 +142,20 @@ def test_snapshot_env_go_restore_undoes_mutation(bash_bin, scripts_dir, tmp_path
 
 
 @pytest.mark.parametrize(
-    "script_name",
-    ["snapshot_env.sh", "snapshot_env_js.sh", "snapshot_env_go.sh"],
+    "lang",
+    ["python", "javascript", "go"],
 )
-def test_usage_message_for_unknown_action(bash_bin, scripts_dir, tmp_path: Path, script_name: str):
+def test_usage_message_for_unknown_action(bash_bin, scripts_dir, tmp_path: Path, lang: str):
     # Build a minimal valid project for each script so the action-dispatch path
     # is reached (otherwise the script may fail earlier on cd / missing files).
-    if script_name == "snapshot_env.sh":
+    if lang == "python":
         _make_python_project(tmp_path)
-    elif script_name == "snapshot_env_js.sh":
+    elif lang == "javascript":
         _make_js_project(tmp_path)
     else:
         _make_go_project(tmp_path)
 
-    result = _run(bash_bin, scripts_dir / script_name, tmp_path, "frobnicate")
+    script = scripts_dir / lang / "snapshot_env.sh"
+    result = _run(bash_bin, script, tmp_path, "frobnicate")
     assert result.returncode != 0
     assert "Usage" in result.stderr or "usage" in result.stderr.lower()

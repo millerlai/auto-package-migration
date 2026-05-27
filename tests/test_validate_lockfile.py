@@ -36,7 +36,7 @@ def _run(bash_bin: str, script_path: Path, project: Path) -> subprocess.Complete
 
 
 def test_validate_lockfile_missing_manifest_returns_failure(bash_bin, scripts_dir, tmp_path: Path):
-    result = _run(bash_bin, scripts_dir / "validate_lockfile.sh", tmp_path)
+    result = _run(bash_bin, scripts_dir / "javascript" / "validate_lockfile.sh", tmp_path)
     # exit code can be 0 or non-zero depending on implementation; the
     # contract is that stdout is valid JSON describing the failure.
     data = json.loads(result.stdout)
@@ -56,7 +56,7 @@ def test_validate_lockfile_emits_json_for_npm_project(bash_bin, scripts_dir, tmp
             }
         )
     )
-    result = _run(bash_bin, scripts_dir / "validate_lockfile.sh", tmp_path)
+    result = _run(bash_bin, scripts_dir / "javascript" / "validate_lockfile.sh", tmp_path)
 
     # The validation itself may pass or fail depending on whether npm is on
     # PATH, but we must always get a structured JSON status back.
@@ -72,11 +72,11 @@ def test_validate_lockfile_emits_json_for_npm_project(bash_bin, scripts_dir, tmp
 
 
 def test_validate_modfile_go_missing_mod_returns_failure(bash_bin, scripts_dir, tmp_path: Path):
-    script = scripts_dir / "validate_modfile_go.sh"
+    script = scripts_dir / "go" / "validate_modfile.sh"
     if not script.exists():
         import pytest
 
-        pytest.skip("validate_modfile_go.sh not present")
+        pytest.skip("scripts/go/validate_modfile.sh not present")
     result = _run(bash_bin, script, tmp_path)
     # No go.mod — script should report failure cleanly (JSON or non-zero exit).
     if result.stdout.strip():

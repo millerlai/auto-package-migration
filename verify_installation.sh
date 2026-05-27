@@ -242,59 +242,59 @@ fi
 echo ""
 echo "10. 功能測試..."
 
-# 測試 detect_env.sh
-if bash "$SKILL_DIR/scripts/detect_env.sh" . 2>/dev/null | jq -e '.pkg_manager' >/dev/null 2>&1; then
-    check_pass "detect_env.sh 可正常執行"
+# 測試 Python detect_env.sh
+if bash "$SKILL_DIR/scripts/python/detect_env.sh" . 2>/dev/null | jq -e '.pkg_manager' >/dev/null 2>&1; then
+    check_pass "scripts/python/detect_env.sh 可正常執行"
 else
-    check_fail "detect_env.sh 執行失敗"
+    check_fail "scripts/python/detect_env.sh 執行失敗"
 fi
 
 # 測試 Python scripts (如果有 requests)
 if python3 -c "import requests" 2>/dev/null; then
-    if python3 "$SKILL_DIR/scripts/dep_tree.py" . requests 2>/dev/null | jq -e '.package_name' >/dev/null 2>&1; then
-        check_pass "dep_tree.py 可正常執行"
+    if python3 "$SKILL_DIR/scripts/python/dep_tree.py" . requests 2>/dev/null | jq -e '.package_name' >/dev/null 2>&1; then
+        check_pass "scripts/python/dep_tree.py 可正常執行"
     else
-        check_warn "dep_tree.py 執行異常 (可能是專案沒有 requests)"
+        check_warn "scripts/python/dep_tree.py 執行異常 (可能是專案沒有 requests)"
     fi
 fi
 
-# 測試 detect_env_js.sh on a synthetic package.json
-if command -v node &> /dev/null && [ -d "$SKILL_DIR/scripts/node_modules" ]; then
+# 測試 JS helpers on a synthetic package.json
+if command -v node &> /dev/null && [ -d "$SKILL_DIR/scripts/javascript/node_modules" ]; then
     JS_TMP=$(mktemp -d)
     echo '{"name":"verify","version":"1.0.0","dependencies":{}}' > "$JS_TMP/package.json"
-    if bash "$SKILL_DIR/scripts/detect_env_js.sh" "$JS_TMP" 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
-        check_pass "detect_env_js.sh 可正常執行"
+    if bash "$SKILL_DIR/scripts/javascript/detect_env.sh" "$JS_TMP" 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
+        check_pass "scripts/javascript/detect_env.sh 可正常執行"
     else
-        check_warn "detect_env_js.sh 執行異常"
+        check_warn "scripts/javascript/detect_env.sh 執行異常"
     fi
     # preflight.sh returns non-zero when blockers exist (which is expected
     # for our minimal fixture). Just verify it emits valid JSON regardless.
-    PF_OUT=$(bash "$SKILL_DIR/scripts/preflight.sh" "$JS_TMP" --json 2>/dev/null || true)
+    PF_OUT=$(bash "$SKILL_DIR/scripts/javascript/preflight.sh" "$JS_TMP" --json 2>/dev/null || true)
     if echo "$PF_OUT" | jq -e '.summary' >/dev/null 2>&1; then
-        check_pass "preflight.sh 可正常執行"
+        check_pass "scripts/javascript/preflight.sh 可正常執行"
     else
-        check_warn "preflight.sh 執行異常"
+        check_warn "scripts/javascript/preflight.sh 執行異常"
     fi
-    if node "$SKILL_DIR/scripts/ast_scanner_js.js" "$JS_TMP" axios 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
-        check_pass "ast_scanner_js.js 可載入 @babel/parser 並執行"
+    if node "$SKILL_DIR/scripts/javascript/ast_scanner.js" "$JS_TMP" axios 2>/dev/null | jq -e '.language=="javascript"' >/dev/null 2>&1; then
+        check_pass "scripts/javascript/ast_scanner.js 可載入 @babel/parser 並執行"
     else
-        check_warn "ast_scanner_js.js 執行異常 — 確認 cd $SKILL_DIR/scripts && npm install 已成功"
+        check_warn "scripts/javascript/ast_scanner.js 執行異常 — 確認 cd $SKILL_DIR/scripts/javascript && npm install 已成功"
     fi
     # parse_pm_errors.py runs without external deps
-    if echo "YN0041: Invalid authentication" | python3 "$SKILL_DIR/scripts/parse_pm_errors.py" 2>/dev/null | jq -e '.primary_blocker == "auth"' >/dev/null 2>&1; then
-        check_pass "parse_pm_errors.py 可正常執行"
+    if echo "YN0041: Invalid authentication" | python3 "$SKILL_DIR/scripts/common/parse_pm_errors.py" 2>/dev/null | jq -e '.primary_blocker == "auth"' >/dev/null 2>&1; then
+        check_pass "scripts/common/parse_pm_errors.py 可正常執行"
     else
-        check_warn "parse_pm_errors.py 執行異常"
+        check_warn "scripts/common/parse_pm_errors.py 執行異常"
     fi
     # save_token.sh — create then conflict-detect
     TOK_TMP=$(mktemp -d)
-    SAVE_OUT1=$(bash "$SKILL_DIR/scripts/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v1" 2>/dev/null || true)
+    SAVE_OUT1=$(bash "$SKILL_DIR/scripts/common/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v1" 2>/dev/null || true)
     SAVE_OUT2_EXIT=0
-    bash "$SKILL_DIR/scripts/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v2" >/dev/null 2>&1 || SAVE_OUT2_EXIT=$?
+    bash "$SKILL_DIR/scripts/common/save_token.sh" "$TOK_TMP" .env.test FAKE_TOKEN "v2" >/dev/null 2>&1 || SAVE_OUT2_EXIT=$?
     if echo "$SAVE_OUT1" | jq -e '.status == "created"' >/dev/null 2>&1 && [ "$SAVE_OUT2_EXIT" = "2" ]; then
-        check_pass "save_token.sh 創建與衝突偵測都正確"
+        check_pass "scripts/common/save_token.sh 創建與衝突偵測都正確"
     else
-        check_warn "save_token.sh 行為異常 (created=$SAVE_OUT1, conflict_exit=$SAVE_OUT2_EXIT)"
+        check_warn "scripts/common/save_token.sh 行為異常 (created=$SAVE_OUT1, conflict_exit=$SAVE_OUT2_EXIT)"
     fi
     rm -rf "$TOK_TMP"
     rm -rf "$JS_TMP"
@@ -325,8 +325,7 @@ else
     echo ""
     echo "常見修復方法:"
     echo "1. 設定執行權限:"
-    echo "   chmod +x ~/.claude/skills/package-upgrade/scripts/*.sh"
-    echo "   chmod +x ~/.claude/skills/package-upgrade/scripts/*.py"
+    echo "   find ~/.claude/skills/package-upgrade/scripts \\( -name '*.sh' -o -name '*.py' -o -name '*.js' \\) -exec chmod +x {} +"
     echo ""
     echo "2. 安裝 Python 依賴:"
     echo "   pip install pipdeptree requests"

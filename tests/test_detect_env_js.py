@@ -37,7 +37,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
 
 
 def _run(bash_bin: str, scripts_dir: Path, project: Path) -> dict:
-    script = scripts_dir / "detect_env_js.sh"
+    script = scripts_dir / "javascript" / "detect_env.sh"
     result = subprocess.run(
         [bash_bin, str(script), str(project)],
         capture_output=True,
@@ -116,7 +116,7 @@ def test_custom_registry_with_env_var_in_yarnrc(bash_bin, scripts_dir, tmp_path:
 )
 def test_missing_package_json_errors(bash_bin, scripts_dir, tmp_path: Path):
     """No package.json — script should exit non-zero with a clear JSON error."""
-    script = scripts_dir / "detect_env_js.sh"
+    script = scripts_dir / "javascript" / "detect_env.sh"
     result = subprocess.run(
         [bash_bin, str(script), str(tmp_path)],
         capture_output=True,

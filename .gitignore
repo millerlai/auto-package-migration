@@ -46,7 +46,7 @@ Thumbs.db
 .upgrade_snapshot_js/
 
 # Node modules installed by skill helper scripts (JS support)
-package-upgrade/scripts/node_modules/
+package-upgrade/scripts/javascript/node_modules/
 
 # Testing
 .pytest_cache/

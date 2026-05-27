@@ -35,7 +35,7 @@ def _make_module(tmp_path: Path, module_path: str = "example.com/proj") -> Path:
 
 
 def _run(go_bin: str, scripts_dir: Path, project: Path, target: str) -> dict:
-    script = scripts_dir / "ast_scanner_go.go"
+    script = scripts_dir / "go" / "ast_scanner.go"
     result = subprocess.run(
         [go_bin, "run", str(script), str(project), target],
         capture_output=True,
