@@ -65,7 +65,15 @@ target-version = "py38"
 # Treat scripts shipped with the skill and root-level helpers as first-party
 # so isort groups `import dep_tree`, `import grant_permissions`, etc. correctly
 # in tests/ regardless of whether the package is installed editable in CI.
-src = ["package-upgrade/scripts", "."]
+# After the per-language reorg the importable modules live under common/ and
+# python/ subdirs (see tests/conftest.py's sys.path setup), so those have to
+# be listed too — `src` doesn't recurse.
+src = [
+    "package-upgrade/scripts",
+    "package-upgrade/scripts/common",
+    "package-upgrade/scripts/python",
+    ".",
+]
 
 [tool.ruff.lint]
 select = [
