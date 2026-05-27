@@ -128,7 +128,8 @@ bash scripts/detect_env_js.sh <project_path>
 接著一律讀 `references/js_workflow.md` 為主文件，依 `pkg_manager` 補讀：
 - `npm` → `references/npm_workflow.md`
 - `yarn` (含 yarn 3 Berry) → `references/yarn_workflow.md`
-- `pnpm` / `bun` → 後續 stage，遇到時告知使用者尚未支援
+- `pnpm` → `references/pnpm_workflow.md`
+- `bun` → 後續 stage，遇到時告知使用者尚未支援（bun.lock 為二進位格式，dep_tree 解析受限）
 - 一律讀 `references/js_ast_strategy.md`、`references/breaking_change_patterns_js.md`、`references/auth_tokens.md`
 - Phase 2 涉及 transitive override 時 → `references/js_override_semantics.md`（涵蓋 npm `overrides` / yarn `resolutions` / `pnpm.overrides` / bun 的對應寫法）
 
@@ -1490,15 +1491,15 @@ bash scripts/snapshot_env_go.sh <project_path> save
 
 **JavaScript path** (5 分支對應 `upgrade_strategy`):
 
-| `upgrade_strategy` | 走哪條 | 指令樣板 (npm / yarn) |
+| `upgrade_strategy` | 走哪條 | 指令樣板 (npm / yarn / pnpm) |
 |---|---|---|
-| `direct_bump` | 「Direct: 同時更新宣告檔 + lock」 | `npm install <pkg>@<ver>` / `$PKG_MANAGER_BIN up <pkg>@<ver>` |
-| `bump_override` | 編輯 `package.json#overrides`/`resolutions` 後重 install | `npm install --package-lock-only` / `$PKG_MANAGER_BIN install --mode update-lockfile` |
-| `bump_parent` | 把 direct parent 當新目標跑 direct_bump | `npm install <parent>@<latest>` / `$PKG_MANAGER_BIN up <parent>` |
-| `add_override` | 編輯 `package.json` 新增 `overrides`/`resolutions` 後重 install | 同 `bump_override` |
-| `lock_only` | 「Transitive: lock-only 路徑」(yarn 用 `set resolution`，npm 用 `npm update`) | `$PKG_MANAGER_BIN set resolution ...` / `npm update <pkg>` |
+| `direct_bump` | 「Direct: 同時更新宣告檔 + lock」 | `npm install <pkg>@<ver>` / `$PKG_MANAGER_BIN up <pkg>@<ver>` / `$PKG_MANAGER_BIN add <pkg>@<ver>` |
+| `bump_override` | 編輯 `package.json#overrides`/`resolutions`/`pnpm.overrides` 後重 install | `npm install --package-lock-only` / `$PKG_MANAGER_BIN install --mode update-lockfile` / `$PKG_MANAGER_BIN install --lockfile-only` |
+| `bump_parent` | 把 direct parent 當新目標跑 direct_bump | `npm install <parent>@<latest>` / `$PKG_MANAGER_BIN up <parent>` / `$PKG_MANAGER_BIN add <parent>@<latest>` |
+| `add_override` | 編輯 `package.json` 新增 `overrides`/`resolutions`/`pnpm.overrides` 後重 install | 同 `bump_override` |
+| `lock_only` | 「Transitive: lock-only 路徑」(yarn 用 `set resolution`，npm/pnpm 用 `update`) | `$PKG_MANAGER_BIN set resolution ...` / `npm update <pkg>` / `$PKG_MANAGER_BIN update <pkg>` |
 
-詳細命令見 `references/yarn_workflow.md` / `references/npm_workflow.md` 的「Transitive 升級策略」章節。
+詳細命令見 `references/yarn_workflow.md` / `references/npm_workflow.md` / `references/pnpm_workflow.md` 的「Transitive 升級策略」章節。
 
 **Go path** (5 分支對應 `upgrade_strategy`):
 
@@ -1718,6 +1719,37 @@ $PKG_MANAGER_BIN install --mode update-lockfile
 - 跳過 → 走「手動編輯 yarn.lock + Phase 5.4 validate_lockfile.sh」fallback；Phase 7 報告中註明「Auth fallback: lockfile-only」
 
 詳見 `references/yarn_workflow.md` 與 `references/auth_tokens.md`。
+
+#### For pnpm (JavaScript path):
+
+> **重要**: 用 Phase 0 偵測到的 `pkg_manager_bin`。pnpm 9+ 透過 corepack 管理時，
+> 仍會被 detect_env_js.sh 解析出實際路徑 — 不要 hardcode `pnpm`。
+
+```bash
+# 直接依賴 (dependencies)
+$PKG_MANAGER_BIN add <package>@<version>
+
+# Dev 依賴 (devDependencies)
+$PKG_MANAGER_BIN add -D <package>@<version>
+
+# Peer 依賴
+$PKG_MANAGER_BIN add --save-peer <package>@<version>
+
+# Workspace 內升級 (filter 用 workspace name 或 glob)
+$PKG_MANAGER_BIN --filter <workspace-name> add <package>@<version>
+
+# Transitive override：先編輯 package.json 加 pnpm.overrides，再：
+$PKG_MANAGER_BIN install --lockfile-only
+
+# Transitive lock-only (Phase 2 走 B-3 時)
+$PKG_MANAGER_BIN update <package>
+```
+
+`pnpm add` 與 `npm install --save` 行為對應 — 會同時寫回 `package.json` 與
+`pnpm-lock.yaml`。pnpm 預設**會**跑 lifecycle scripts；若要跳過明確加
+`--ignore-scripts`，事後再 `pnpm rebuild <pkg>` 補。
+
+詳見 `references/pnpm_workflow.md`。
 
 **`npm install` 會自動**:
 1. ✅ 更新 `package.json` 中的版本範圍 (預設用 `^<version>` caret range)

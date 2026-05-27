@@ -289,32 +289,42 @@ function parseYarn1(text) {
 }
 
 /**
- * Parse a pnpm-lock.yaml.
- * Format excerpt (we only need the `packages:` map):
+ * Parse one block (`packages:` or `snapshots:`) of a pnpm-lock.yaml.
+ *
+ * v6 / v7 inline everything under `packages:`. v9 (lockfileVersion '9.0')
+ * splits dependency edges out into a separate `snapshots:` block, with
+ * `packages:` retaining only version-level resolution metadata. We read
+ * both blocks with the same logic and concat downstream.
+ *
  *   packages:
- *     /lodash@4.17.21:
+ *     /lodash@4.17.21:           # v6/v7 key (slash-prefixed)
  *       resolution: {integrity: sha512-...}
  *       dependencies:
  *         is-arrayish: 0.3.2
  *       peerDependencies:
  *         react: '>=16'
+ *
+ *   snapshots:                   # v9 only
+ *     lodash@4.17.21:            # v9 key (no slash; may have peer suffix)
+ *       dependencies:
+ *         is-arrayish: 0.3.2
  */
-function parsePnpm(text) {
+function _readPnpmBlock(text, blockName) {
     const entries = [];
-    // Find the `packages:` block
-    const pkgIdx = text.indexOf('\npackages:');
-    if (pkgIdx < 0) return { entries, format: 'pnpm-lock' };
-    const tail = text.slice(pkgIdx);
-    const lines = tail.split('\n');
-    let i = 1; // skip "packages:" header line itself
+    const re = new RegExp(`(^|\\n)${blockName}:\\s*\\n`);
+    const match = re.exec(text);
+    if (!match) return entries;
+    const blockStart = match.index + match[0].length;
+    const lines = text.slice(blockStart).split('\n');
+    let i = 0;
     while (i < lines.length) {
         const line = lines[i];
-        // Top-level key is 2-space indented under `packages:` (lockfile v6/v7 quote-wrapped)
+        // End of block: a column-0 non-whitespace line (next top-level key)
+        if (line.length > 0 && !/^\s/.test(line)) break;
         const keyMatch = /^  ['"]?(\/?[^'"]+?)['"]?:\s*$/.exec(line);
         if (!keyMatch) { i++; continue; }
-        const fullKey = keyMatch[1]; // e.g. "/lodash@4.17.21" or "/@scope/pkg@1.0.0(react@18)"
+        const fullKey = keyMatch[1]; // e.g. "/lodash@4.17.21" or "lodash@4.17.21(react@18)"
         const stripped = fullKey.replace(/^\//, '');
-        // Strip peer-id suffix like `(react@18)`
         const noPeer = stripped.replace(/\(.+?\)$/, '');
         const m = /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(noPeer);
         if (!m) { i++; continue; }
@@ -330,6 +340,7 @@ function parsePnpm(text) {
                 i++;
                 while (i < lines.length && /^      /.test(lines[i])) {
                     const dl = lines[i].trim();
+                    if (!dl) { i++; continue; }
                     const dm = /^([^:]+):\s*(.+?)\s*$/.exec(dl);
                     if (dm) {
                         const depName = dm[1].replace(/^['"]|['"]$/g, '');
@@ -345,7 +356,19 @@ function parsePnpm(text) {
         }
         entries.push(entry);
     }
-    return { entries, format: 'pnpm-lock' };
+    return entries;
+}
+
+function parsePnpm(text) {
+    // v6 / v7 only populates `packages:`; v9 also populates `snapshots:`
+    // (and is where the dependency edges live for v9). Read both — for
+    // v6/v7 the second call is a no-op since `snapshots:` is absent.
+    const packagesEntries  = _readPnpmBlock(text, 'packages');
+    const snapshotsEntries = _readPnpmBlock(text, 'snapshots');
+    return {
+        entries: [...packagesEntries, ...snapshotsEntries],
+        format: 'pnpm-lock',
+    };
 }
 
 /**
