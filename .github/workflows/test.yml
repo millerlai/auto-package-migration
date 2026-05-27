@@ -23,5 +23,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # Toolchains for the JS / Go helper-script tests (TODO 3.1 + 3.2).
+      # Without these the test_*_js.py / test_*_go.py modules skip
+      # automatically; having them installed turns the skips into real
+      # coverage of the cross-language helpers.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS helper deps
+        working-directory: package-upgrade/scripts
+        run: npm ci
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
       - name: Run pytest
         run: uv run pytest
