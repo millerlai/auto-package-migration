@@ -159,3 +159,190 @@ def test_source_field_identifies_lockfile_format(
 
     # source must indicate which parser was used; for npm-lock that's "npm-lock"
     assert out["source"] in ("npm-lock", "npm-ls")
+
+
+# --------------------------------------------------------------------------- #
+# pnpm fixtures — task 4 verification.
+# v6/v7 inline deps under `packages:`; v9 splits them out to `snapshots:`.
+# parsePnpm in dep_tree_js.js reads both blocks so the same downstream logic
+# works for either lockfile version.
+# --------------------------------------------------------------------------- #
+
+
+PNPM_LOCK_V6 = """\
+lockfileVersion: '6.0'
+
+dependencies:
+  axios:
+    specifier: ^1.6.0
+    version: 1.6.0
+
+packages:
+
+  /axios@1.6.0:
+    resolution: {integrity: sha512-aaaa==}
+    dependencies:
+      follow-redirects: 1.15.3
+      form-data: 4.0.0
+    dev: false
+
+  /follow-redirects@1.15.3:
+    resolution: {integrity: sha512-bbbb==}
+    dev: false
+
+  /form-data@4.0.0:
+    resolution: {integrity: sha512-cccc==}
+    dev: false
+"""
+
+
+PNPM_LOCK_V9 = """\
+lockfileVersion: '9.0'
+
+importers:
+
+  .:
+    dependencies:
+      axios:
+        specifier: ^1.6.0
+        version: 1.6.0
+
+packages:
+
+  axios@1.6.0:
+    resolution: {integrity: sha512-aaaa==}
+    engines: {node: '>=14'}
+
+  follow-redirects@1.15.3:
+    resolution: {integrity: sha512-bbbb==}
+
+  form-data@4.0.0:
+    resolution: {integrity: sha512-cccc==}
+
+snapshots:
+
+  axios@1.6.0:
+    dependencies:
+      follow-redirects: 1.15.3
+      form-data: 4.0.0
+
+  follow-redirects@1.15.3: {}
+
+  form-data@4.0.0: {}
+"""
+
+
+def test_pnpm_v6_lockfile_parses_direct_dep(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"axios": "^1.6.0"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V6)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["pkg_manager"] == "pnpm"
+    assert out["source"] == "pnpm-lock"
+    assert out["current_version"] == "1.6.0"
+    assert out["is_direct"] is True
+
+
+def test_pnpm_v6_transitive_parent_chain(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    """form-data is transitive via axios — recommended strategy should be bump_parent."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"axios": "^1.6.0"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V6)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "form-data")
+
+    assert out["pkg_manager"] == "pnpm"
+    assert out["is_direct"] is False
+    assert out["is_transitive"] is True
+    assert "axios" in out["parent_packages"]
+    assert "axios" in out["direct_parents"]
+    assert out["recommended_strategy"] == "bump_parent"
+
+
+def test_pnpm_v9_lockfile_parses_via_snapshots_block(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """v9 splits deps into `snapshots:`; parser must merge both blocks."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"axios": "^1.6.0"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V9)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["pkg_manager"] == "pnpm"
+    assert out["source"] == "pnpm-lock"
+    assert out["current_version"] == "1.6.0"
+    assert out["is_direct"] is True
+
+
+def test_pnpm_v9_transitive_parent_from_snapshots(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """The dependency edge axios→form-data lives only in the snapshots block in v9."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"axios": "^1.6.0"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V9)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "form-data")
+
+    assert out["pkg_manager"] == "pnpm"
+    assert out["is_transitive"] is True
+    assert "axios" in out["parent_packages"]
+    assert "axios" in out["direct_parents"]
+
+
+def test_pnpm_overrides_pin_detected(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    """pnpm.overrides should be surfaced so Phase 2 picks bump_override over hand-edit."""
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "x",
+                "dependencies": {"axios": "^1.6.0"},
+                "pnpm": {"overrides": {"form-data": "4.0.4"}},
+            }
+        )
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V9)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "form-data")
+
+    pin = out["package_json_pin"]["pnpm_overrides"]
+    assert pin is not None
+    assert pin["kind"] == "pnpm-overrides"
+    assert pin["value"] == "4.0.4"
+    assert out["recommended_strategy"] == "bump_override"
+
+
+def test_pnpm_workspace_locations_detected(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """pnpm-workspace.yaml globs should be expanded into workspace_info.locations."""
+    (tmp_path / "package.json").write_text(json.dumps({"name": "root", "private": True}))
+    (tmp_path / "pnpm-workspace.yaml").write_text("packages:\n  - 'packages/*'\n")
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V9)
+
+    ws_a = tmp_path / "packages" / "a"
+    ws_a.mkdir(parents=True)
+    (ws_a / "package.json").write_text(
+        json.dumps({"name": "@x/a", "dependencies": {"axios": "^1.6.0"}})
+    )
+    ws_b = tmp_path / "packages" / "b"
+    ws_b.mkdir(parents=True)
+    (ws_b / "package.json").write_text(
+        json.dumps({"name": "@x/b", "dependencies": {"lodash": "^4.17.0"}})
+    )
+
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+    ws_info = out["workspace_info"]
+    assert ws_info["is_workspace_root"] is True
+    locations = {loc["name"] for loc in ws_info["locations"]}
+    assert "@x/a" in locations
+    assert "@x/b" not in locations

@@ -8,7 +8,9 @@
 | 套件管理工具 | reference |
 |--------------|-----------|
 | npm          | `references/npm_workflow.md` |
-| yarn / pnpm / bun | (MVP 階段尚未支援，遇到時告知使用者 fallback 到 npm 流程或手動處理) |
+| yarn (含 yarn 3 Berry) | `references/yarn_workflow.md` |
+| pnpm         | `references/pnpm_workflow.md` |
+| bun          | (後續 stage 尚未支援；`bun.lock` 為二進位格式，dep_tree 無法 robust 解析) |
 
 JS path **必讀** `references/js_ast_strategy.md` 與
 `references/breaking_change_patterns_js.md`。
@@ -126,7 +128,6 @@ npm update <package> --depth Infinity --ignore-scripts
 ## 不在 MVP 範圍
 
 下列功能後續 stage 才加，遇到時暫停並告知使用者：
-- yarn / pnpm / bun 套件管理工具（lock 檔案格式各異）
-- Monorepo workspace 升級傳播（`-w` / `--filter`）
+- bun 套件管理工具（`bun.lock` / `bun.lockb` 為二進位格式，需 bun runtime 才能 robust 解析）
 - Codemod discovery（react-codemod, @next/codemod, ...）
 - Bun runtime 專屬 API 的 breaking change

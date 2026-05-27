@@ -19,10 +19,10 @@
 | 3.1 JS helper 加 pytest | ✅ 完成 | `test/js-go-helper-pytest`：`test_ast_scanner_js.py` (8) + `test_detect_env_js.py` (5/6, 1 win32 skip)。`test/dep-tree-api-surface-pytest`：`test_dep_tree_js.py` (5) + `test_api_surface_diff_js.py` (2 + 1 RUN_API_SURFACE_DIFF opt-in)。schema coverage 完整；diff 詳細 schema 留待任務 1.3 與 confidence 一起改 |
 | 3.2 Go helper 加 pytest | ✅ 完成 | `test/js-go-helper-pytest`：`test_ast_scanner_go.py` (7) + `test_detect_env_go.py` (5)。`test/dep-tree-api-surface-pytest`：`test_api_surface_diff_go.py` (2 + 1 RUN_API_SURFACE_DIFF opt-in)。本地無 Go 全 skip；CI 會跑 |
 | 3.3 共用 bash helper 煙霧測試 | ✅ 完成（核心） | `test/bash-helper-smoke`：`test_detect_env_py.py` (7) + `test_snapshot_env.py` (10, 三語言 save/restore round-trip) + `test_validate_lockfile.py` (3)。preflight / run_tests / git_diff / govulncheck / pip_audit 涉及外部工具，留作後續補強 |
-| 4.1 `pnpm_workflow.md` | ⬜ 未開始 | — |
-| 4.2 `dep_tree_js.js` 支援 pnpm | ⬜ 未開始 | — |
-| 4.3 `run_tests_js.sh` / `snapshot_env_js.sh` / `validate_lockfile.sh` 加 pnpm | ⬜ 未開始 | — |
-| 4.4 SKILL.md pnpm 段落 | ⬜ 未開始 | — |
+| 4.1 `pnpm_workflow.md` | ✅ 完成 | `feat/pnpm-support`：新增 `references/pnpm_workflow.md`（preflight、Phase 5 升級命令、transitive 策略 1-5、`pnpm.overrides` 含 `parent>child` 語法、workspace、cheat sheet、hoisting / symlink 與 `shamefully-hoist`、常見錯誤代碼、corepack 整合） |
+| 4.2 `dep_tree_js.js` 支援 pnpm | ✅ 完成 | `feat/pnpm-support`：原本只讀 `packages:` 區塊（v6/v7）。Refactor 出 `_readPnpmBlock`，再讀 `snapshots:` 區塊以支援 pnpm-lock v9（v9 把 dep edges 從 packages 拆到 snapshots）。`detectLockfile` / `findOverridesPin` / `readPnpmWorkspaceGlobs` / `recommendStrategies` 早已有 pnpm 分支，本 PR 補上 v9 lockfile parse 即完整支援 |
+| 4.3 `run_tests_js.sh` / `snapshot_env_js.sh` / `validate_lockfile.sh` 加 pnpm | ✅ 完成 | 既有 (`feature/refactoring` / 既存)：三支 script 都已有 pnpm 偵測與分支 — `run_tests_js.sh` 走 `pnpm test`、`snapshot_env_js.sh` 備份 `pnpm-lock.yaml` + `pnpm-workspace.yaml` 並 hint `pnpm install --frozen-lockfile`、`validate_lockfile.sh` 跑 `pnpm install --frozen-lockfile --offline`。本 PR 確認後沒再動 |
+| 4.4 SKILL.md pnpm 段落 | ✅ 完成 | `feat/pnpm-support`：SKILL.md `:131` 移除「pnpm 不支援」告示改指向 `pnpm_workflow.md`（bun 仍標記後續 stage）；Phase 5 升級策略表格三欄擴 npm/yarn/pnpm；新增 `#### For pnpm` 升級命令小節（`add` / `add -D` / `--filter` / `--lockfile-only` / `update`）。`references/js_workflow.md` 開頭工具表與「不在 MVP 範圍」清單也同步更新 |
 
 **已知瑕疵（非本 PR 引入，記在這裡待後續處理）**：
 - `detect_env.sh:12` 的 `grep -P` 在 Windows MSYS 環境會印 locale warning 到 stderr，造成 `python_version` 抓不到。原版即存在，未動。
@@ -43,7 +43,7 @@
 | 4 | `test/dep-tree-api-surface-pytest` *(規劃中)* | #2 | 任務 3.1 / 3.2 補完（`test_dep_tree_js`、`test_api_surface_diff_*`） |
 | 5 | `feat/api-surface-confidence` *(規劃中)* | #4 | 任務 1.3（confidence 統一，需要 #4 的測試守門） |
 | 6 | `test/bash-helper-smoke` *(規劃中)* | #5 | 任務 3.3（剩餘 bash helper 煙霧測試） |
-| 7 | `feat/pnpm-support` *(規劃中)* | #6 | 任務 4（pnpm 完整支援，最大塊獨立工作） |
+| 7 | `feat/pnpm-support` | master (post #27) | 任務 4（pnpm 完整支援）。實作量小於原預估 — 三支 bash helper 早已有 pnpm 分支，`dep_tree_js.js` parser 也涵蓋 v6/v7，本 PR 僅補 v9 `snapshots:` block + `pnpm_workflow.md` + SKILL.md 段落 |
 
 #3 與 #2 平行；#2 / #3 同時動到 `TODO.md` 進度欄位，merge 時可能要手動合併 ✅ marker（merge order 表本身相同，不衝突）。其餘必須依序 merge。
 
