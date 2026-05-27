@@ -95,6 +95,11 @@ bash scripts/detect_env.sh <project_path>
 - poetry → 讀 `references/poetry_workflow.md`
 - uv → 讀 `references/uv_workflow.md`
 
+接著一律讀:
+- `references/breaking_change_patterns_py.md` — Python 慣例（`@deprecated` / `__getattr__` / async/sync / C ext ABI 等）
+- `references/python_override_semantics.md` — Phase 2 `bump_override` 策略選擇參考
+- 偵測為 web app / CLI / scientific stack 時 → `references/runtime_verification_py.md`
+
 **若 `language == "javascript"`**，執行：
 
 ```bash
@@ -125,6 +130,7 @@ bash scripts/detect_env_js.sh <project_path>
 - `yarn` (含 yarn 3 Berry) → `references/yarn_workflow.md`
 - `pnpm` / `bun` → 後續 stage，遇到時告知使用者尚未支援
 - 一律讀 `references/js_ast_strategy.md`、`references/breaking_change_patterns_js.md`、`references/auth_tokens.md`
+- Phase 2 涉及 transitive override 時 → `references/js_override_semantics.md`（涵蓋 npm `overrides` / yarn `resolutions` / `pnpm.overrides` / bun 的對應寫法）
 
 **若 `language == "go"`**，執行：
 
@@ -151,6 +157,7 @@ bash scripts/detect_env_go.sh <project_path>
 - 觸發 major version (`v2+`) 升級 → `references/go_major_version_paths.md`
 - CVE / 漏洞流程 → `references/govulncheck.md`
 - 一律讀 `references/breaking_change_patterns_go.md`、`references/auth_tokens.md`
+- 偵測為 CLI binary / server 時 → `references/runtime_verification_go.md`
 
 ⚠️ **legacy 工具偵測**：若 `pkg_manager == "dep"|"glide"|"govendor"|"gopath"`,
 **停下來告訴使用者先 migrate 到 Go modules**（`go mod init <path> && go mod tidy`），
