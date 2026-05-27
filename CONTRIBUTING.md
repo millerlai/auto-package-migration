@@ -1,122 +1,158 @@
 # 貢獻指南
 
-感謝你對 Package Upgrade Skill 的興趣！我們歡迎各種形式的貢獻。
+感謝你對 Package Upgrade Skill 的興趣。這份文件涵蓋兩種角色：
+- **貢獻者**（修 bug、加功能、補測試）
+- **開發者**（在本機跑、改、debug skill 本身）
 
-## 🚀 快速開始
+修改前請先讀 `CLAUDE.md` — 那裡有 repo 層級的工作原則
+（Think before coding / Simplicity first / Surgical changes / Goal-driven execution）。
 
-### 設定開發環境
+---
+
+## 🚀 設定開發環境
+
+本專案使用 **UV** 管理 Python 依賴。
 
 ```bash
-# 1. Fork 並 Clone 專案
+# 1. Fork + clone
 git clone https://github.com/YOUR_USERNAME/auto-package-migration.git
 cd auto-package-migration
 
-# 2. 安裝 UV (如果還沒安裝)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 2. 安裝 UV（任一）
+curl -LsSf https://astral.sh/uv/install.sh | sh    # macOS / Linux
+brew install uv                                     # macOS via brew
+pip install uv                                      # 任何平台
 
-# 3. 安裝依賴 (Python)
+# 3. 安裝 Python 依賴（uv sync 會建 .venv/、裝主依賴 + dev 依賴、editable 安裝本專案）
 uv sync
 
-# 4. 安裝 JS helper 依賴 (若要動到 JS / TS 軌)
-cd package-upgrade/scripts && npm install && cd ../..
+# 4. 安裝 JS helper 依賴（要動 JS / TS 軌才需要）
+cd package-upgrade/scripts/javascript && npm install && cd ../../..
 
-# 5. 啟用 pre-commit hook (每次 commit 自動跑 ruff)
+# 5. 安裝 Go 工具（要動 Go 軌才需要）
+go install golang.org/x/vuln/cmd/govulncheck@latest
+go install golang.org/x/exp/cmd/apidiff@latest
+
+# 6. 啟用 pre-commit hook（每次 commit 自動跑 ruff）
 uv run pre-commit install
 
-# 6. 驗證安裝
+# 7. 驗證安裝
 bash verify_installation.sh
 ```
-
-現在你的開發環境已就緒！🎉
-
-> 📌 修改前請先讀 `CLAUDE.md` —— 上面有 repo 層級的工作原則 (Think before coding /
-> Simplicity first / Surgical changes / Goal-driven execution)。
 
 ---
 
 ## 📂 專案結構
 
-本專案**使用 UV 管理依賴**：
+```
+auto-package-migration/
+├── pyproject.toml             # UV 專案配置
+├── uv.lock                    # UV 鎖定（commit）
+├── .venv/                     # 虛擬環境（gitignored）
+├── tests/                     # pytest UT suite
+│
+├── package-upgrade/           # ⭐ Skill 出貨單位
+│   ├── SKILL.md
+│   ├── README.md
+│   ├── QUICK_REFERENCE.md
+│   ├── LICENSE
+│   ├── scripts/
+│   │   ├── common/            # 跨語言：fetch_changelog / save_token / jira_* / parse_pm_errors / git_diff
+│   │   ├── python/            # detect_env / dep_tree / ast_scanner / api_surface_diff / preflight / run_tests / snapshot_env / validate_lockfile / pip_audit
+│   │   ├── javascript/        # 同上 + runtime_verify + package.json + node_modules
+│   │   └── go/                # 同上 + govulncheck + validate_modfile
+│   ├── references/
+│   │   ├── common/            # auth_tokens / bdsa_mapping / jira_workflow / breaking_change_patterns / important_dependency_update
+│   │   ├── python/
+│   │   ├── javascript/
+│   │   └── go/
+│   └── templates/
+│
+├── package-upgrade-feedback/  # 第二個 skill（feedback 收集）
+│
+├── install.sh / install.bat / install-cygwin64.sh
+├── verify_installation.sh
+├── grant_permissions.py       # 寫入 Claude Code settings.json 的權限
+├── CLAUDE.md                  # repo 層級的 Claude Code 指示
+├── CHANGELOG.md
+├── CONTRIBUTING.md            # 這份
+├── README.md / README.zh-TW.md
+└── docs/
+    ├── installation.md
+    ├── project-status.md
+    └── archive/
+```
 
-- `pyproject.toml` - 專案配置和依賴宣告
-- `uv.lock` - 鎖定檔案 (應 commit)
-- `.venv/` - 虛擬環境 (不 commit)
-- `tests/` - pytest UT suite
-
-### 主要目錄
-
-- `package-upgrade/` - Claude Code Skill (發布單位)
-  - `scripts/` - 三軌 helper scripts (Python / JS / Go) + JS 的 `package.json`
-  - `references/` - 語言別參考文件
-  - `templates/` - 報告模板
-- `install.sh` / `install.bat` / `install-cygwin64.sh` - 各平台安裝腳本
-- `*.md` - 文件
-- `tests/` - pytest UT suite
+設計要點：
+- ✅ Python scripts 直接在 `package-upgrade/scripts/python/`，無 `src/` 中介層
+- ✅ 無 symlinks（早期版本曾用，已移除）
+- ✅ JS helpers 在 `scripts/javascript/` 有自己的 `package.json`；不會污染 Python 環境
+- ✅ 三語言軌道是**平行的**（`scripts/python/dep_tree.py` / `scripts/javascript/dep_tree.js` / `scripts/go/dep_tree.sh`）
+- ✅ 動一條時**不要**順手把另外兩條也改掉（除非需求真的要 cross-cut），詳見 `CLAUDE.md § Surgical changes`
 
 ---
 
 ## 🛠️ 開發工作流程
 
-### 1. 建立 Feature Branch
+### 1. Branch
 
 ```bash
 git checkout -b feature/your-feature-name
 ```
 
-### 2. 修改程式碼
+### 2. 修改
 
 ```bash
 # Python helper
-vim package-upgrade/scripts/dep_tree.py
+vim package-upgrade/scripts/python/dep_tree.py
 
 # JS / TS helper
-vim package-upgrade/scripts/dep_tree_js.js
+vim package-upgrade/scripts/javascript/dep_tree.js
 
 # Go helper
-vim package-upgrade/scripts/dep_tree_go.sh
+vim package-upgrade/scripts/go/dep_tree.sh
 ```
-
-> 三語言軌道是平行的 (`*.py` / `*_js.js` / `*_go.sh`)。動其中一個時
-> **不要**順手把其他軌道也改掉 —— 除非你的需求真的要 cross-cut。
-> (參考 `CLAUDE.md` § Surgical changes)
 
 ### 3. 測試修改
 
 ```bash
 # Python
-uv run python package-upgrade/scripts/dep_tree.py . requests
+uv run python package-upgrade/scripts/python/dep_tree.py . requests
 
 # JS
-node package-upgrade/scripts/dep_tree_js.js . axios
+node package-upgrade/scripts/javascript/dep_tree.js . axios
 
 # Go
-bash package-upgrade/scripts/dep_tree_go.sh . github.com/spf13/cobra
+bash package-upgrade/scripts/go/dep_tree.sh . github.com/spf13/cobra
 ```
 
-### 4. 格式化與檢查
+### 4. 格式化 + Lint + 測試
 
 ```bash
-# 格式化 (black)
-uv run black package-upgrade/scripts/*.py
+# 格式化
+uv run black package-upgrade/scripts/python/*.py
 
-# Lint 檢查 (ruff)
+# Lint
 uv run ruff check .
 uv run ruff check --fix .
 
-# 跑所有 pre-commit hooks (含 ruff)
+# 全部 pre-commit hooks（含 ruff）
 uv run pre-commit run --all-files
 
-# 跑單元測試
+# 型別檢查
+uv run mypy package-upgrade/scripts/python/*.py
+
+# 單元測試
 uv run pytest
+uv run pytest tests/test_dep_tree.py                          # 單檔
+uv run pytest --cov=package-upgrade --cov-report=html         # 含 coverage
 ```
 
-> Pre-commit hook 已在環境設定步驟啟用，每次 `git commit` 會自動跑 ruff。
-> CI 也會在 push / PR 時跑 `ruff check .` 與 `pytest`，所以 commit 前讓兩者通過很重要。
+CI（GitHub Actions）push / PR 時會跑 `ruff check .` + `pytest`。本機 pre-commit 過了，CI 才會過。
 
 ### 5. 同步更新 SKILL.md
 
-helper script 的 CLI 與 JSON output schema 是 SKILL.md 對外的介面 ——
-動 helper 時也要更新 SKILL.md 對應 phase 的描述，兩者必須保持同步。
+helper script 的 CLI 與 JSON output schema 是 SKILL.md 對外的介面。**改 helper 必同步改 SKILL.md 對應 phase 的描述**，兩者不能漂。
 
 ### 6. 測試安裝流程
 
@@ -128,59 +164,29 @@ bash install.sh                # POSIX
 bash verify_installation.sh
 ```
 
-### 7. Commit 變更
+### 7. Commit
+
+依 Conventional Commits 格式：
 
 ```bash
 git add .
 git commit -m "feat: add your feature description"
 
-# Commit message 格式 (Conventional Commits):
-# - feat: 新功能
-# - fix: 修復
-# - docs: 文件
-# - refactor: 重構
-# - test: 測試
-# - chore: 雜項
+# 前綴:
+#   feat:     新功能
+#   fix:      修復
+#   docs:     文件
+#   refactor: 重構
+#   test:     測試
+#   chore:    雜項
 ```
 
-### 8. Push 並建立 PR
+### 8. Push + PR
 
 ```bash
 git push origin feature/your-feature-name
-
-# 使用 gh CLI
-gh pr create --title "feat: your feature" --body "Description of changes"
+gh pr create --title "feat: your feature" --body "Description"
 ```
-
----
-
-## 🎯 貢獻方向
-
-### 優先級 High
-
-- [ ] 支援 **pnpm** / **bun** (繼 npm / yarn 3 之後的下一個 stage)
-- [ ] 支援 **conda** / **pipenv**
-- [ ] 改進 breaking change 偵測準確度 (Python / JS / Go 三軌都歡迎)
-- [ ] 增加更多測試框架支援
-  - Python: nose2 / tox
-  - JS: mocha / playwright
-  - Go: ginkgo
-- [ ] 增加 monorepo 結構支援 (Lerna / Nx / Turborepo / pnpm workspaces / go.work)
-
-### 優先級 Medium
-
-- [ ] 跨語言移植：**Ruby (bundler)** / **Rust (cargo)** / **Java (maven / gradle)**
-- [ ] 改進 CVE 風險評估邏輯 (參考 Go govulncheck 的 reachability，做到 JS / Python)
-- [ ] 改進三向診斷 (SOURCE_CODE / TEST_CODE / BOTH / CONFIG)
-- [ ] 整合更多 issue tracker：GitHub Issues / GitLab Issues / Linear
-
-### 優先級 Low
-
-- [ ] Web UI 介面
-- [ ] VS Code 擴充套件整合
-
-> ✅ Python (pip / poetry / uv)、JavaScript / TypeScript (npm / yarn 3)、
->    Go (modules) 已支援；不要重複貢獻。
 
 ---
 
@@ -201,7 +207,7 @@ import sys
 from typing import Dict, List
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     pass
 
@@ -210,14 +216,11 @@ if __name__ == "__main__":
     main()
 ```
 
-**規範**：
-- ✅ 使用 `#!/usr/bin/env python3` shebang
-- ✅ 包含 docstring 說明用法和輸出
-- ✅ 使用 type hints (Python 3.8+)
-- ✅ 錯誤處理要完善，errors 輸出到 stderr (`file=sys.stderr`)
-- ✅ JSON 輸出到 stdout，結構化
-- ✅ 行長度 ≤ 100 字元 (black 設定)
-- ✅ ruff 必須 pass
+- ✅ `#!/usr/bin/env python3` shebang
+- ✅ Type hints（Python 3.8+ 相容）
+- ✅ Errors → stderr (`file=sys.stderr`)；JSON → stdout
+- ✅ 行長 ≤ 100 字元（black）
+- ✅ ruff clean
 
 ### Bash Scripts
 
@@ -228,16 +231,11 @@ if __name__ == "__main__":
 # Output: Description
 
 set -euo pipefail
-
-# Implementation
 ```
 
-**規範**：
-- ✅ 使用 `#!/usr/bin/env bash` shebang
-- ✅ 包含用法說明註解
-- ✅ 使用 `set -euo pipefail` 嚴格模式
-- ✅ 錯誤訊息輸出到 stderr (`>&2`)
-- ✅ JSON 輸出使用 `jq` 處理
+- ✅ `#!/usr/bin/env bash` + `set -euo pipefail`
+- ✅ Errors → stderr (`>&2`)
+- ✅ JSON 處理用 `jq`
 
 ### JavaScript Scripts
 
@@ -252,117 +250,153 @@ set -euo pipefail
 'use strict';
 
 const fs = require('fs');
-// ...
 ```
 
-**規範**：
-- ✅ 使用 `#!/usr/bin/env node` shebang
-- ✅ 依賴宣告在 `package-upgrade/scripts/package.json`
-- ✅ 錯誤訊息輸出到 `process.stderr`
-- ✅ JSON 輸出到 `process.stdout`
+- ✅ `#!/usr/bin/env node` shebang
+- ✅ 依賴宣告在 `package-upgrade/scripts/javascript/package.json`
+- ✅ Errors → `process.stderr`；JSON → `process.stdout`
 
-### Markdown 文件
+---
 
-- ✅ 使用清楚的標題層級
-- ✅ 程式碼區塊標註語言
-- ✅ 使用表格組織資訊
-- ✅ 加入範例和使用說明
-- ✅ 繁體中文或英文皆可 (技術文件優先英文)
+## 🎯 貢獻方向
+
+### 優先級 High
+
+- [ ] 支援 **bun**（pnpm 已支援）
+- [ ] 支援 **conda** / **pipenv**
+- [ ] 改進 breaking change 偵測準確度（Python / JS / Go 三軌都歡迎）
+- [ ] 增加更多測試框架支援
+  - Python: nose2 / tox
+  - JS: mocha / playwright
+  - Go: ginkgo
+
+### 優先級 Medium
+
+- [ ] 跨語言移植：**Ruby (bundler)** / **Rust (cargo)** / **Java (maven / gradle)** — `scripts/` 已分 per-language 子資料夾，加新語言只要新增子資料夾 + SKILL.md 對應 phase 分支
+- [ ] 改進 CVE 風險評估邏輯（參考 Go govulncheck 的 reachability，做到 JS / Python）
+- [ ] 改進三向診斷（SOURCE_CODE / TEST_CODE / BOTH / CONFIG）
+- [ ] 整合更多 issue tracker：GitHub Issues / GitLab Issues / Linear
+
+### 優先級 Low
+
+- [ ] Web UI 介面
+- [ ] VS Code 擴充套件整合
+
+> ✅ Python (pip / poetry / uv)、JavaScript / TypeScript (npm / yarn 3 / pnpm)、
+>    Go (modules) 已支援；不要重複貢獻。
 
 ---
 
 ## 🧪 測試
 
-本專案已有 **pytest UT suite**，並且 CI (GitHub Actions) 會在 push / PR 時自動跑。
+`tests/` 有 pytest UT suite，CI 會在 push / PR 時自動跑。
 
-### 執行測試
+### 寫新測試
 
-```bash
-uv run pytest                                     # 所有測試
-uv run pytest tests/test_dep_tree.py              # 單檔
-uv run pytest --cov=package-upgrade --cov-report=html
-```
-
-### 寫新的測試
-
-新增 helper script 時，請同步在 `tests/` 加入對應測試：
-
-```
-tests/
-├── conftest.py                  # pytest fixture
-├── test_dep_tree.py
-├── test_ast_scanner.py
-├── test_fetch_changelog.py
-└── fixtures/                    # 測試用 sample 專案
-    ├── sample_project_pip/
-    ├── sample_project_poetry/
-    ├── sample_project_uv/
-    ├── sample_project_npm/
-    └── sample_project_go/
-```
+新增 helper script 時，請同步在 `tests/` 加對應測試。`tests/conftest.py` 已把
+`scripts/common/` 與 `scripts/python/` 加進 `sys.path`，所以 Python 模組直接
+`import` 就能用；`scripts/go/dep_tree.py` 跟 `scripts/python/dep_tree.py`
+撞名，所以 Go 的版本要用 `importlib.util` 顯式 load（見 `tests/test_dep_tree_go.py`）。
 
 ---
 
 ## 📋 PR 檢查清單
 
-提交 PR 前請確認：
+提交 PR 前：
 
 - [ ] 程式碼已格式化 (`uv run black .`)
 - [ ] 通過 lint 檢查 (`uv run ruff check .`)
 - [ ] 通過單元測試 (`uv run pytest`)
 - [ ] 所有 scripts 有執行權限 (`chmod +x`)
 - [ ] 所有 scripts 有正確的 shebang
-- [ ] 已測試 `install.sh` 和 `verify_installation.sh`
+- [ ] 已測試 `install.sh` 與 `verify_installation.sh`
 - [ ] 若動到三平台 installer，已測試 `install.bat` / `install-cygwin64.sh`
-- [ ] 更新相關文件 (README、CHANGELOG、SKILL.md)
+- [ ] 更新相關文件（`README.md`、`CHANGELOG.md`、`SKILL.md`）
 - [ ] PR 描述清楚說明變更內容
 - [ ] 遵循 Conventional Commits 格式
 
 ---
 
+## 💡 UV 速查（給 Python 軌貢獻者）
+
+### 依賴管理
+
+```bash
+uv sync                 # 安裝所有依賴
+uv sync --no-dev        # 只安裝主要依賴
+uv add requests         # 新增主依賴
+uv add --dev pytest     # 新增 dev 依賴
+uv remove requests      # 移除
+uv lock --upgrade-package requests  # 更新單一套件
+uv sync                 # 套用 lockfile 變更
+```
+
+### 執行命令
+
+```bash
+uv run python script.py
+uv run pytest
+uv run black .
+uv run ruff check .
+```
+
+### 環境管理
+
+```bash
+uv pip list             # 已安裝套件
+uv pip show requests
+uv pip tree             # 依賴樹
+
+# 重建環境
+rm -rf .venv && uv sync
+```
+
+### UV vs Poetry / Pip 速覽
+
+| 操作 | pip | poetry | uv |
+|------|-----|--------|-----|
+| 安裝依賴 | `pip install -r req.txt` | `poetry install` | `uv sync` |
+| 新增套件 | 編輯檔案 + `pip install` | `poetry add pkg` | `uv add pkg` |
+| 更新套件 | 編輯檔案 + `pip install` | `poetry add pkg@ver` | `uv add pkg` |
+| 移除套件 | 編輯檔案 + `pip uninstall` | `poetry remove pkg` | `uv remove pkg` |
+| 執行腳本 | `python script.py` | `poetry run python script.py` | `uv run python script.py` |
+| 速度 | 慢 | 中 | 極快（10–100×）|
+
+---
+
 ## 💡 開發技巧
 
-### 快速測試 Scripts
+### 快速測試 scripts（一次性測試專案）
 
 ```bash
 # Python
 mkdir -p /tmp/test-pkg-py && cd /tmp/test-pkg-py
 echo "requests==2.28.0" > requirements.txt
-bash ~/path/to/package-upgrade/scripts/detect_env.sh .
-uv run python ~/path/to/package-upgrade/scripts/dep_tree.py . requests
+bash ~/path/to/package-upgrade/scripts/python/detect_env.sh .
+uv run python ~/path/to/package-upgrade/scripts/python/dep_tree.py . requests
 
 # JS
 mkdir -p /tmp/test-pkg-js && cd /tmp/test-pkg-js
 npm init -y && npm install axios@1.6.0
-bash ~/path/to/package-upgrade/scripts/detect_env_js.sh .
-node ~/path/to/package-upgrade/scripts/dep_tree_js.js . axios
+bash ~/path/to/package-upgrade/scripts/javascript/detect_env.sh .
+node ~/path/to/package-upgrade/scripts/javascript/dep_tree.js . axios
 
 # Go
 mkdir -p /tmp/test-pkg-go && cd /tmp/test-pkg-go
 go mod init example.com/test
 go get github.com/spf13/cobra@v1.7.0
-bash ~/path/to/package-upgrade/scripts/detect_env_go.sh .
-bash ~/path/to/package-upgrade/scripts/dep_tree_go.sh . github.com/spf13/cobra
-```
-
-### 使用 UV 命令
-
-```bash
-uv add --dev pytest-mock
-uv run python package-upgrade/scripts/ast_scanner.py . requests
-uv pip tree
-uv lock --upgrade
-uv sync
+bash ~/path/to/package-upgrade/scripts/go/detect_env.sh .
+bash ~/path/to/package-upgrade/scripts/go/dep_tree.sh . github.com/spf13/cobra
 ```
 
 ### 除錯技巧
 
 ```bash
-# Python — 輸出 debug 訊息到 stderr (不污染 JSON stdout)
+# Python — debug 訊息到 stderr（不污染 JSON stdout）
 import sys
 print(f"DEBUG: {variable}", file=sys.stderr)
 
-# Bash — 啟用 trace
+# Bash — trace
 set -x
 
 # JS — 寫到 stderr
@@ -374,68 +408,75 @@ fmt.Fprintln(os.Stderr, "DEBUG:", variable)
 
 ---
 
-## 🐛 回報 Bug
+## 🐛 故障排除（開發環境）
 
-### 建立 Issue 時請包含
+### `uv sync` 失敗
 
-1. **環境資訊**：
-   - OS 版本
-   - 語言 (Python / Node.js / Go) 版本
-   - 對應的套件管理工具版本 (pip / poetry / uv / npm / yarn / go)
-   - UV 版本
-   - Claude Code 版本
-
-2. **重現步驟**：
-   - 完整的命令
-   - 預期行為
-   - 實際行為
-
-3. **相關日誌**：
-   - 錯誤訊息
-   - Traceback
-   - 相關的 JSON 輸出
-
-### 範例 Issue
-
-```markdown
-**環境**：
-- Windows 11 / macOS 14.0
-- Python 3.11.4
-- Node.js 20.10.0
-- Go 1.21.5
-- UV 0.5.0
-- Claude Code 1.2.0
-
-**問題描述**：
-執行 `detect_env_js.sh` 時無法偵測到 yarn 3 (corepack-managed)
-
-**重現步驟**：
-1. cd /path/to/yarn3-project
-2. bash detect_env_js.sh .
-3. 輸出 `"pkg_manager": "unknown"`
-
-**預期**：應該輸出 `"pkg_manager": "yarn"` 與 `pkg_manager_bin` 解析到 .yarn/releases/...
-
-**實際輸出**：
-```json
-{"pkg_manager": "unknown", ...}
+```bash
+uv --version
+uv check pyproject.toml
 ```
+
+### 依賴衝突
+
+```bash
+uv sync --reinstall
 ```
+
+### 虛擬環境損壞
+
+```bash
+rm -rf .venv && uv sync
+```
+
+### JS helper 缺 `node_modules`
+
+```bash
+cd package-upgrade/scripts/javascript && npm install
+```
+
+### pre-commit hook 沒跑
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
+### ruff 在 CI 失敗但 local 通過
+
+清 ruff 的 per-file cache，加 `--no-cache`：
+
+```bash
+uv run ruff check . --no-cache
+```
+
+（cache 在 reorg / rename 後容易跟新狀態漂掉。）
 
 ---
 
-## 📞 聯絡方式
+## 🐛 回報 Bug
+
+建立 Issue 時請附：
+
+1. **環境資訊**：OS、Python / Node.js / Go 版本、UV 版本、Claude Code 版本
+2. **重現步驟**：完整命令、預期行為、實際行為
+3. **相關日誌**：錯誤訊息、traceback、相關 JSON 輸出
+
+---
+
+## 📞 聯絡
 
 - **Issues**: <https://github.com/millerlai/auto-package-migration/issues>
 - **Discussions**: <https://github.com/millerlai/auto-package-migration/discussions>
 
 ---
 
-## 🙏 致謝
+## 🔗 相關資源
 
-感謝所有貢獻者！你的貢獻讓這個專案更好。
-
-特別感謝：
-- Anthropic 的 Claude Code 團隊
-- Python / Node.js / Go 社群
-- 所有提供回饋和建議的使用者
+- [`CLAUDE.md`](./CLAUDE.md) — repo 工作原則
+- [`docs/installation.md`](./docs/installation.md) — 安裝與驗證
+- [`package-upgrade/SKILL.md`](./package-upgrade/SKILL.md) — Skill 完整工作流程
+- [UV 官方文件](https://docs.astral.sh/uv/)
+- [Python Packaging Guide](https://packaging.python.org/)
+- [Node.js corepack](https://nodejs.org/api/corepack.html)
+- [Go modules reference](https://go.dev/ref/mod)
