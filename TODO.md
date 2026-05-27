@@ -16,8 +16,8 @@
 | 2.1 `runtime_verification_{py,go}.md` | ✅ 完成 | `docs/multi-lang-references`：兩份新文件覆蓋 T1-import / T1-cli / T2-web / T2-data (py)、T1-build / T1-cli / T2-server (go)。SKILL.md Phase 0.2 對應段落已連到新文件 |
 | 2.2 `python_override_semantics.md` + `js_override_semantics.md` | ✅ 完成 | `docs/multi-lang-references`：Python 涵蓋 pip-tools / poetry / uv 三套；JS 涵蓋 npm / yarn 1 / yarn 3+ / pnpm / bun 五套。SKILL.md Phase 0.2 各 path 段落已連結 |
 | 2.3 `breaking_change_patterns_py.md` | ✅ 完成 | `docs/multi-lang-references`：Python 慣例（`@deprecated` / `__getattr__` / async/sync / C ext ABI / pickle / pkg_resources 等）；含 Phase 4 修法 cookbook |
-| 3.1 JS helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_js.py` (8 tests, all pass) + `test_detect_env_js.py` (5 pass, 1 skip on Windows)。`test_dep_tree_js.py` + `test_api_surface_diff_js.py` 留下個 PR。 |
-| 3.2 Go helper 加 pytest | 🟡 部分完成 | `test/js-go-helper-pytest`：加 `test_ast_scanner_go.py` (7 tests) + `test_detect_env_go.py` (5 tests)。本地無 Go 全 skip；CI 會跑。`test_api_surface_diff_go.py` 留下個 PR。 |
+| 3.1 JS helper 加 pytest | ✅ 完成 | `test/js-go-helper-pytest`：`test_ast_scanner_js.py` (8) + `test_detect_env_js.py` (5/6, 1 win32 skip)。`test/dep-tree-api-surface-pytest`：`test_dep_tree_js.py` (5) + `test_api_surface_diff_js.py` (2 + 1 RUN_API_SURFACE_DIFF opt-in)。schema coverage 完整；diff 詳細 schema 留待任務 1.3 與 confidence 一起改 |
+| 3.2 Go helper 加 pytest | ✅ 完成 | `test/js-go-helper-pytest`：`test_ast_scanner_go.py` (7) + `test_detect_env_go.py` (5)。`test/dep-tree-api-surface-pytest`：`test_api_surface_diff_go.py` (2 + 1 RUN_API_SURFACE_DIFF opt-in)。本地無 Go 全 skip；CI 會跑 |
 | 3.3 共用 bash helper 煙霧測試 | ⬜ 未開始 | — |
 | 4.1 `pnpm_workflow.md` | ⬜ 未開始 | — |
 | 4.2 `dep_tree_js.js` 支援 pnpm | ⬜ 未開始 | — |
