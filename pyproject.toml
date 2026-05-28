@@ -3,7 +3,7 @@ name = "package-upgrade-skill"
 version = "1.0.0"
 description = "Claude Code Skill for automated Python package upgrades and CVE fixes"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Package Upgrade Skill Contributors"}
@@ -14,8 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -57,11 +55,11 @@ dev = [
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = ['py310', 'py311', 'py312']
 
 [tool.ruff]
 line-length = 100
-target-version = "py38"
+target-version = "py310"
 # Treat scripts shipped with the skill and root-level helpers as first-party
 # so isort groups `import dep_tree`, `import grant_permissions`, etc. correctly
 # in tests/ regardless of whether the package is installed editable in CI.
@@ -89,7 +87,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
