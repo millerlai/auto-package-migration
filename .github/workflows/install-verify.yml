@@ -34,7 +34,7 @@ jobs:
           python -m pip install pipdeptree requests
 
       - name: Run install.sh (project-local, non-interactive)
-        run: printf 'y\n' | bash install.sh --project --skip-permissions
+        run: bash install.sh --project --yes
 
       - name: Verify installation
         run: PACKAGE_UPGRADE_SKILLS_ROOT=./.claude/skills bash verify_installation.sh
@@ -61,7 +61,7 @@ jobs:
 
       - name: Run install.bat (project-local, non-interactive)
         shell: cmd
-        run: echo y | install.bat --project --skip-permissions
+        run: .\install.bat --project --yes
 
       - name: Assert skills copied and JS deps installed under javascript/
         shell: bash

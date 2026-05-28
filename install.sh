@@ -14,6 +14,7 @@ NC='\033[0m'
 # 預設安裝模式
 MODE="global"
 SKIP_PERMISSIONS="false"
+ASSUME_YES="false"   # --yes / -y, or CI / PACKAGE_UPGRADE_ASSUME_YES=1
 
 # 解析參數
 for arg in "$@"; do
@@ -21,9 +22,10 @@ for arg in "$@"; do
         --project) MODE="project" ;;
         --global)  MODE="global"  ;;
         --skip-permissions) SKIP_PERMISSIONS="true" ;;
+        --yes|-y) ASSUME_YES="true" ;;
         -h|--help)
             cat <<EOF
-Usage: bash install.sh [--global|--project] [--skip-permissions]
+Usage: bash install.sh [--global|--project] [--skip-permissions] [--yes]
 
 Installs two skills:
   - package-upgrade           (main upgrade workflow)
@@ -33,11 +35,37 @@ Installs two skills:
   --project             Install to ./.claude/skills/
   --skip-permissions    Don't offer to write the recommended Claude Code
                         permissions into settings.json
+  --yes, -y             Non-interactive: assume yes to install/overwrite/deps
+                        prompts (also implied by CI or PACKAGE_UPGRADE_ASSUME_YES=1).
+                        Implies --skip-permissions to avoid unattended writes to
+                        settings.json.
 EOF
             exit 0
             ;;
     esac
 done
+
+# 非互動模式: 也由 CI / PACKAGE_UPGRADE_ASSUME_YES=1 觸發
+if [ -n "${CI:-}" ] || [ "${PACKAGE_UPGRADE_ASSUME_YES:-}" = "1" ]; then
+    ASSUME_YES="true"
+fi
+# 非互動時不自動改寫 settings.json (避免無人值守變更共用設定)
+if [ "$ASSUME_YES" = "true" ]; then
+    SKIP_PERMISSIONS="true"
+fi
+
+# confirm <prompt> <default-when-non-interactive: y|n> -> 0=yes, 1=no
+confirm() {
+    if [ "$ASSUME_YES" = "true" ]; then
+        echo "${1}[auto:${2}]"
+        [ "$2" = "y" ]
+        return
+    fi
+    local reply
+    read -p "$1" -n 1 -r reply
+    echo
+    [[ $reply =~ ^[Yy]$ ]]
+}
 
 echo -e "${BLUE}=========================================="
 echo "Package Upgrade Skill 安裝程式"
@@ -73,9 +101,7 @@ echo "安裝位置: $SKILLS_ROOT/{${SKILLS[0]},${SKILLS[1]}}"
 TARGET_DIR="$SKILLS_ROOT/package-upgrade"
 
 echo ""
-read -p "繼續安裝? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+if ! confirm "繼續安裝? (y/N) " y; then
     echo "安裝已取消"
     exit 0
 fi
@@ -98,9 +124,7 @@ if [ "$OVERWRITE_NEEDED" = "true" ]; then
     for skill in "${SKILLS[@]}"; do
         [ -d "$SKILLS_ROOT/$skill" ] && echo "  - $SKILLS_ROOT/$skill"
     done
-    read -p "確定要覆蓋嗎? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if ! confirm "確定要覆蓋嗎? (y/N) " y; then
         echo "安裝已取消"
         exit 0
     fi
@@ -146,9 +170,7 @@ fi
 
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "${YELLOW}缺少依賴: ${MISSING_DEPS[*]}${NC}"
-    read -p "是否安裝? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if confirm "是否安裝? (y/N) " y; then
         pip install "${MISSING_DEPS[@]}"
         echo -e "${GREEN}✓ 依賴已安裝${NC}"
     else
@@ -294,9 +316,7 @@ if command -v gh >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}未偵測到 gh CLI${NC}"
     echo "  gh 用於 Phase 7 自動建立 GitHub PR; 沒裝的話 skill 會 fallback 為印 URL 讓你手動建。"
-    read -p "  是否現在安裝 gh? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if confirm "  是否現在安裝 gh? (y/N) " n; then
         install_gh
         # 重新檢查 — 自動裝可能成功也可能失敗;手動裝完按 Enter 後也要再驗一次
         if command -v gh >/dev/null 2>&1; then
@@ -316,9 +336,7 @@ if [ "$GH_AVAILABLE" = "true" ]; then
         echo -e "${GREEN}✓ gh 已認證${NC}"
     else
         echo -e "${YELLOW}gh 尚未認證 — Skill 建立 PR 時會失敗${NC}"
-        read -p "  現在執行 gh auth login? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if confirm "  現在執行 gh auth login? (y/N) " n; then
             gh auth login || echo -e "${YELLOW}⚠ gh auth login 未完成,可日後手動執行: gh auth login${NC}"
         else
             echo "  已跳過。日後請執行: gh auth login"

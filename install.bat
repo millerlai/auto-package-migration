@@ -27,6 +27,7 @@ if defined ESC (
 REM 預設安裝模式
 set "MODE=global"
 set "SKIP_PERMISSIONS=false"
+set "ASSUME_YES=false"
 
 REM 解析參數
 :parse_args
@@ -34,6 +35,8 @@ if "%~1"=="" goto args_done
 if /i "%~1"=="--project" ( set "MODE=project" & shift & goto parse_args )
 if /i "%~1"=="--global"  ( set "MODE=global"  & shift & goto parse_args )
 if /i "%~1"=="--skip-permissions" ( set "SKIP_PERMISSIONS=true" & shift & goto parse_args )
+if /i "%~1"=="--yes" ( set "ASSUME_YES=true" & shift & goto parse_args )
+if /i "%~1"=="-y"    ( set "ASSUME_YES=true" & shift & goto parse_args )
 if /i "%~1"=="-h" goto show_help
 if /i "%~1"=="--help" goto show_help
 echo Unknown option: %~1
@@ -41,27 +44,42 @@ shift
 goto parse_args
 
 :show_help
-echo Usage: install.bat [--global^|--project] [--skip-permissions]
+echo Usage: install.bat [--global^|--project] [--skip-permissions] [--yes]
 echo.
 echo   --global              Install to %%USERPROFILE%%\.claude\skills\package-upgrade (default)
 echo   --project             Install to .\.claude\skills\package-upgrade
 echo   --skip-permissions    Don't offer to write the recommended Claude Code
 echo                         permissions into settings.json
+echo   --yes, -y             Non-interactive: assume yes to install/overwrite/deps
+echo                         prompts (also implied by CI or PACKAGE_UPGRADE_ASSUME_YES=1).
+echo                         Implies --skip-permissions.
 endlocal
 exit /b 0
 
 :args_done
+
+REM 非互動: CI 或 PACKAGE_UPGRADE_ASSUME_YES=1 也觸發,並隱含 --skip-permissions
+if defined CI set "ASSUME_YES=true"
+if /i "%PACKAGE_UPGRADE_ASSUME_YES%"=="1" set "ASSUME_YES=true"
+if /i "!ASSUME_YES!"=="true" set "SKIP_PERMISSIONS=true"
 
 echo %BLUE%==========================================%NC%
 echo Package Upgrade Skill 安裝程式
 echo %BLUE%==========================================%NC%
 echo.
 
-REM 檢查是否在專案根目錄
+REM 檢查是否在專案根目錄 (兩個 skill 都要在)
 if not exist "package-upgrade\" (
     echo %RED%錯誤: 請在專案根目錄執行此腳本%NC%
     echo 目前路徑: %CD%
     echo 預期看到: package-upgrade\ 目錄
+    endlocal
+    exit /b 1
+)
+if not exist "package-upgrade-feedback\" (
+    echo %RED%錯誤: 請在專案根目錄執行此腳本%NC%
+    echo 目前路徑: %CD%
+    echo 預期看到: package-upgrade-feedback\ 目錄
     endlocal
     exit /b 1
 )
@@ -77,8 +95,8 @@ if /i "%MODE%"=="global" (
 echo 安裝位置: !TARGET_DIR!
 
 echo.
-set "REPLY="
-set /p "REPLY=繼續安裝? (y/N) "
+set "REPLY=y"
+if /i not "!ASSUME_YES!"=="true" set /p "REPLY=繼續安裝? (y/N) "
 if /i not "!REPLY!"=="y" (
     echo 安裝已取消
     endlocal
@@ -89,26 +107,37 @@ REM 建立目標目錄
 echo.
 echo %BLUE%步驟 1/8: 建立目錄%NC%
 for %%I in ("!TARGET_DIR!") do set "PARENT_DIR=%%~dpI"
+set "FEEDBACK_DIR=!PARENT_DIR!package-upgrade-feedback"
 if not exist "!PARENT_DIR!" mkdir "!PARENT_DIR!" 2>nul
 
-if exist "!TARGET_DIR!\" (
-    echo %YELLOW%警告: 目標目錄已存在,將會覆蓋%NC%
-    set "REPLY="
-    set /p "REPLY=確定要覆蓋嗎? (y/N) "
+set "NEED_OVERWRITE="
+if exist "!TARGET_DIR!\" set "NEED_OVERWRITE=1"
+if exist "!FEEDBACK_DIR!\" set "NEED_OVERWRITE=1"
+if defined NEED_OVERWRITE (
+    echo %YELLOW%警告: skill 目錄已存在,將會覆蓋%NC%
+    set "REPLY=y"
+    if /i not "!ASSUME_YES!"=="true" set /p "REPLY=確定要覆蓋嗎? (y/N) "
     if /i not "!REPLY!"=="y" (
         echo 安裝已取消
         endlocal
         exit /b 0
     )
-    rmdir /S /Q "!TARGET_DIR!"
+    if exist "!TARGET_DIR!\" rmdir /S /Q "!TARGET_DIR!"
+    if exist "!FEEDBACK_DIR!\" rmdir /S /Q "!FEEDBACK_DIR!"
 )
 
-REM 複製檔案
+REM 複製檔案 (兩個 skill)
 echo.
 echo %BLUE%步驟 2/8: 複製檔案%NC%
 xcopy /E /I /Y /Q "package-upgrade" "!TARGET_DIR!" >nul
 if errorlevel 1 (
-    echo %RED%✗ 檔案複製失敗%NC%
+    echo %RED%✗ package-upgrade 複製失敗%NC%
+    endlocal
+    exit /b 1
+)
+xcopy /E /I /Y /Q "package-upgrade-feedback" "!FEEDBACK_DIR!" >nul
+if errorlevel 1 (
+    echo %RED%✗ package-upgrade-feedback 複製失敗%NC%
     endlocal
     exit /b 1
 )
@@ -146,8 +175,8 @@ if not defined PYTHON_CMD (
 
     if defined MISSING_DEPS (
         echo %YELLOW%缺少依賴:!MISSING_DEPS!%NC%
-        set "REPLY="
-        set /p "REPLY=是否安裝? (y/N) "
+        set "REPLY=y"
+        if /i not "!ASSUME_YES!"=="true" set /p "REPLY=是否安裝? (y/N) "
         if /i "!REPLY!"=="y" (
             !PYTHON_CMD! -m pip install !MISSING_DEPS!
             echo %GREEN%✓ 依賴已安裝%NC%
@@ -231,8 +260,8 @@ if not errorlevel 1 (
 ) else (
     echo %YELLOW%未偵測到 gh CLI%NC%
     echo   gh 用於 Phase 7 自動建立 GitHub PR; 沒裝的話 skill 會 fallback 為印 URL 讓你手動建。
-    set "REPLY="
-    set /p "REPLY=  是否現在安裝 gh? (y/N) "
+    set "REPLY=n"
+    if /i not "!ASSUME_YES!"=="true" set /p "REPLY=  是否現在安裝 gh? (y/N) "
     if /i "!REPLY!"=="y" (
         where winget >nul 2>nul
         if not errorlevel 1 (
@@ -268,8 +297,8 @@ if /i "!GH_AVAILABLE!"=="true" (
         echo %GREEN%✓ gh 已認證%NC%
     ) else (
         echo %YELLOW%gh 尚未認證 — Skill 建立 PR 時會失敗%NC%
-        set "REPLY="
-        set /p "REPLY=  現在執行 gh auth login? (y/N) "
+        set "REPLY=n"
+        if /i not "!ASSUME_YES!"=="true" set /p "REPLY=  現在執行 gh auth login? (y/N) "
         if /i "!REPLY!"=="y" (
             gh auth login
         ) else (
