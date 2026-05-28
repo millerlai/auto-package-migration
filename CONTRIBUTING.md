@@ -216,7 +216,7 @@ if __name__ == "__main__":
 ```
 
 - ✅ `#!/usr/bin/env python3` shebang
-- ✅ Type hints（Python 3.8+ 相容）
+- ✅ Type hints（Python 3.10+ 相容）
 - ✅ Errors → stderr (`file=sys.stderr`)；JSON → stdout
 - ✅ 行長 ≤ 100 字元（black）
 - ✅ ruff clean
