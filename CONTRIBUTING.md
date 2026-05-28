@@ -71,7 +71,7 @@ auto-package-migration/
 ├── package-upgrade-feedback/  # 第二個 skill（feedback 收集）
 │
 ├── install.sh / install.bat / install-cygwin64.sh
-├── verify_installation.sh
+├── verify_installation.sh / verify_installation.bat / verify_installation_cygwin64.sh
 ├── grant_permissions.py       # 寫入 Claude Code settings.json 的權限
 ├── CLAUDE.md                  # repo 層級的 Claude Code 指示
 ├── CHANGELOG.md
@@ -79,8 +79,7 @@ auto-package-migration/
 ├── README.md / README.zh-TW.md
 └── docs/
     ├── installation.md
-    ├── project-status.md
-    └── archive/
+    └── project-status.md
 ```
 
 設計要點：

@@ -13,11 +13,27 @@ commit / PR / Jira write-back.
 ## 🚀 Quick start
 
 ```bash
-# Install (global, recommended)
+# Install — macOS / Linux (global, recommended)
 bash install.sh
+bash install.sh --project          # project-local install (./.claude/skills/)
+bash install.sh --skip-permissions # don't write to Claude Code settings.json
 
-# Verify
+# Install — Windows (PowerShell / cmd)
+install.bat
+
+# Install — Cygwin64 / Git Bash / MSYS2 (also installs the gh CLI)
+bash install-cygwin64.sh
+```
+
+```bash
+# Verify — macOS / Linux
 bash verify_installation.sh
+
+# Verify — Windows (PowerShell / cmd)
+verify_installation.bat
+
+# Verify — Cygwin64 / Git Bash / MSYS2
+bash verify_installation_cygwin64.sh
 ```
 
 Two ways to invoke once installed:
@@ -163,14 +179,13 @@ auto-package-migration/
 ├── CHANGELOG.md
 ├── CLAUDE.md                        # repo-level instructions for Claude Code
 ├── install.sh / install.bat / install-cygwin64.sh
-├── verify_installation.sh
+├── verify_installation.sh / verify_installation.bat / verify_installation_cygwin64.sh
 ├── grant_permissions.py             # writes the allow-list into Claude Code settings
 ├── pyproject.toml / uv.lock         # this repo's own dev env (UV-managed)
 │
 ├── docs/                            # deeper documentation
 │   ├── installation.md              # install / manual / troubleshooting / test projects
-│   ├── project-status.md            # current maturity + roadmap
-│   └── archive/                     # historic milestone records
+│   └── project-status.md            # current maturity + roadmap
 │
 ├── package-upgrade/                 # ⭐ the shipped upgrade skill
 │   ├── SKILL.md                     # main skill definition (Phase 0-7)
