@@ -144,7 +144,7 @@ echo ""
 echo "4. 檢查 Scripts..."
 check_scripts common \
     fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh \
-    jira_comment.py jira_fetch.py jira_transition.py
+    jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py
 check_scripts python \
     detect_env.sh dep_tree.py ast_scanner.py run_tests.sh snapshot_env.sh \
     preflight.sh validate_lockfile.sh api_surface_diff.sh pip_audit.sh
@@ -177,7 +177,7 @@ echo ""
 echo "6. 檢查 Reference 文件..."
 check_refs common \
     auth_tokens.md bdsa_mapping.md breaking_change_patterns.md \
-    important_dependency_update.md jira_workflow.md
+    important_dependency_update.md jira_workflow.md dependabot_workflow.md
 check_refs python \
     breaking_change_patterns.md override_semantics.md pip_lock_patterns.md \
     pip_workflow.md poetry_workflow.md runtime_verification.md uv_workflow.md

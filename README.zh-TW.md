@@ -33,6 +33,7 @@ claude "go get -u github.com/spf13/cobra@v1.8.0"
 claude "修復 CVE-2024-35195"
 claude "V1E-148968"                                          # Jira issue key
 claude "https://trendmicro.atlassian.net/browse/V1E-148968"  # Jira URL
+claude "https://github.com/OWNER/REPO/security/dependabot"   # Dependabot 批次
 ```
 
 **B) 進到 Claude Code session 內** — 用 `/package-upgrade` slash command 顯式觸發：
@@ -42,6 +43,7 @@ $ claude
 > /package-upgrade 升級 requests 到 2.32.0
 > /package-upgrade 修復 CVE-2024-35195
 > /package-upgrade V1E-148968
+> /package-upgrade https://github.com/OWNER/REPO/security/dependabot
 ```
 
 或直接打自然語句，skill 的 description 會自動 match「升級 / bump / update / 修復 CVE / go get -u」這類措辭：
@@ -91,6 +93,20 @@ Phase 0 偵測順序：**Go > JS > Python**。
 4. 把遷移報告 comment 回 ticket，並依目前狀態詢問 transition
 
 Commit / PR 會自動加 `[ISSUE_KEY]` 前綴與 `Jira: <URL>`。
+
+---
+
+## 🛡️ Dependabot 批次
+
+提供 GitHub Dependabot 安全警示頁面 URL 即觸發 **批次模式**：
+
+1. `dependabot_fetch.py` 抓所有 open 警示（`gh api` 優先 / `GITHUB_TOKEN`+REST fallback）
+2. 依 `(語言, manifest)` 分組，同套件多 CVE 收斂成一個目標版本（取最高 patched）
+3. 出一份批次升級計畫等你核可：升哪些 + PR 怎麼包（per-package / per-group / combined）
+4. 對每個項目帶 CVE context 跑 Phase 2–7；單項失敗不中止整批
+5. 彙整批次摘要（含「無法自動修」「不支援 ecosystem」call-out）；PR 合併後 Dependabot 自動關閉警示
+
+細節見 [`package-upgrade/references/common/dependabot_workflow.md`](package-upgrade/references/common/dependabot_workflow.md)。
 
 ---
 

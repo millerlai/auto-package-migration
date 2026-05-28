@@ -31,6 +31,7 @@ claude "go get -u github.com/spf13/cobra@v1.8.0"
 claude "fix CVE-2024-35195"
 claude "V1E-148968"                                          # Jira issue key
 claude "https://trendmicro.atlassian.net/browse/V1E-148968"  # Jira URL
+claude "https://github.com/OWNER/REPO/security/dependabot"   # Dependabot batch
 ```
 
 **B) From inside a Claude Code session** — use the `/package-upgrade` slash command, then describe what you want:
@@ -40,6 +41,7 @@ $ claude
 > /package-upgrade upgrade requests to 2.32.0
 > /package-upgrade fix CVE-2024-35195
 > /package-upgrade V1E-148968
+> /package-upgrade https://github.com/OWNER/REPO/security/dependabot
 ```
 
 Or just type the natural-language trigger; the skill description auto-matches phrases like "升級 / bump / update / fix CVE / go get -u":
@@ -74,6 +76,7 @@ Full install / manual install / troubleshooting: **[`docs/installation.md`](docs
 - 📦 **Package + target version** — standard upgrade
 - 🔒 **CVE / BDSA / GHSA ID** — advisory lookup (NVD / OSV / GitHub) + risk assessment against actual usage
 - 🎫 **Jira URL or issue key** — fetches the ticket, infers the upgrade, comments the report back, prompts a status transition
+- 🛡️ **GitHub Dependabot URL** — **batch mode**: fetches all open security alerts, groups them by language/manifest, presents an upgrade plan for approval, then drives each item through the per-package pipeline
 
 ### Language coverage
 
@@ -142,7 +145,7 @@ Phase 0 language detection order: **Go > JS > Python**.
 | Phase | What happens |
 |-------|--------------|
 | **0. Environment detection** | Language detection (Go > JS > Python) → `detect_env.sh` resolves package manager, version, lockfile mode |
-| **1. Input parsing** | Mode A (package + version) / Mode B (CVE / BDSA / GHSA + risk assessment) / Mode C (Jira URL or key via MCP or REST + API token) |
+| **1. Input parsing** | Mode A (package + version) / Mode B (CVE / BDSA / GHSA + risk assessment) / Mode C (Jira URL or key via MCP or REST + API token) / Mode D (GitHub Dependabot URL → batch plan → per-item Phase 2–7) |
 | **2. Dependency analysis** | `dep_tree.*` derives direct / transitive / both; transitive bumps take the lock-only path or trigger a parent-bump prompt |
 | **3. Breaking-change analysis** | Changelog + git diff in parallel; source URLs and commit SHAs preserved |
 | **4. Code impact analysis** | `ast_scanner.*` locates imports + symbol uses → cross-referenced with Phase 3 → drafts patches |
@@ -254,6 +257,20 @@ Commit:  [V1E-148968] chore(deps): upgrade requests to 2.32.0
 PR:      Title: [V1E-148968] chore: upgrade requests to 2.32.0
          Body line 1: Jira: https://trendmicro.atlassian.net/browse/V1E-148968
 ```
+
+### Dependabot batch
+
+```bash
+claude "https://github.com/OWNER/REPO/security/dependabot"
+```
+
+1. Fetches every open Dependabot security alert (`gh api`, or `GITHUB_TOKEN` + REST fallback)
+2. Groups them by `(language, manifest)`, collapsing a package's multiple CVEs into one target (highest patched version)
+3. Presents a batch upgrade plan and pauses for approval — which items, and how to package PRs (per-package / per-group / combined)
+4. Runs each approved item through Phase 2–7 with its CVE context; one item failing doesn't abort the batch
+5. Emits a consolidated summary (status per item, "cannot auto-fix" and "unsupported ecosystem" call-outs); merged PRs auto-close their alerts
+
+See [`package-upgrade/references/common/dependabot_workflow.md`](package-upgrade/references/common/dependabot_workflow.md) for the full workflow.
 
 ### Exploratory query
 
