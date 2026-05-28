@@ -13,6 +13,10 @@ description: >
   Jira issue key (如 V1E-148968) — 此時會自動讀取 ticket 內容、
   分析應升級的套件、完成後將報告 comment 回 ticket，並依目前 ticket
   狀態提議推進 (To Do → Ready for Work → Development → Done)。
+  也適用於使用者提供 GitHub Dependabot 安全警示頁面 URL
+  (如 https://github.com/<owner>/<repo>/security/dependabot) —
+  此時會抓取所有 open 警示、依語言/manifest 分組、產出一份批次升級計畫
+  供使用者核可後，逐項驅動既有升級流程 (batch mode)。
   Python: 支援 pip、poetry、uv 三種套件管理工具。
   JavaScript/TypeScript: 支援 npm、yarn (1 & 3 Berry)、pnpm、bun，含
   TypeScript .d.ts API surface diff、workspace/monorepo 偵測、
@@ -44,6 +48,10 @@ description: >
   完成後 (Phase 7.5/7.6) 將報告 comment 回 ticket、並依目前狀態
   分階段提議轉換 (To Do → Ready for Work、Ready for Work → Development，
   最後在使用者同意下才轉 Done)
+- **若觸發來源是 GitHub Dependabot URL** (Phase 1 情況 D)，這是 **批次 (一對多)**
+  模式：抓取所有 open 警示 → 依 `(language, manifest)` 分組 → 產出批次計畫供核可 →
+  對每個核可項目重用 Phase 2–7 單套件流程。整個 session 保留 `dependabot_context`
+  （詳見 `references/common/dependabot_workflow.md`）
 
 ---
 
@@ -378,6 +386,14 @@ node scripts/javascript/runtime_verify.js <project_path> \
 
 ## Phase 1: 輸入解析
 
+**偵測順序**：先比對 **情況 D**（GitHub Dependabot URL，含 `/security/dependabot`
+路徑）→ 再比對 **情況 C**（Jira `/browse/` URL 或 issue key）→ 再比對 **情況 B**
+（CVE/BDSA/GHSA token）→ 最後 **情況 A**（裸套件名）。先判 D/C 是因為它們是帶特定
+路徑的 URL，否則 URL 中的字串可能被誤判成裸 CVE 編號或套件名。
+
+情況 A/B/C 都是 **單一套件**，直接走下方 Phase 2–7。情況 D 是 **批次 (一對多)**，
+會先產出計畫供核可，再對每個項目重跑 Phase 2–7。
+
 ### 情況 A: 使用者指定 package 名稱
 
 直接進入 Phase 2。
@@ -572,6 +588,88 @@ jira_context = {
   "summary": "<for the comment header>"
 }
 ```
+
+### 情況 D: 使用者提供 GitHub Dependabot URL（批次模式）
+
+範例輸入：`https://github.com/<owner>/<repo>/security/dependabot`
+
+這是 **一對多** 來源 —— 一次帶出一批待升套件（可能跨 Python / JS / Go 與多個
+manifest）。流程：**抓取所有 open 警示 → 分組 → 產出批次計畫供核可 → 對每個核可
+項目重用 Phase 2–7**。
+
+**完整流程、CLI、輸出 schema、計畫/核可範本、批次編排迴圈、PR 打包策略、報告格式、
+跨平台與邊界情況，全部詳見 `references/common/dependabot_workflow.md`** —— 進入情況 D
+時先讀它。以下是各步驟摘要：
+
+#### Step 1.D.1: 解析 URL
+
+用 regex 抽出 `host` / `owner` / `repo` / 可選 `number`：
+
+```python
+r'https?://(?P<host>[^/]+)/(?P<owner>[^/]+)/(?P<repo>[^/]+)/security/dependabot(?:/(?P<number>\d+))?'
+```
+
+`host != "github.com"` → 企業 GHE（`gh` 帶 `--hostname`）。有 `number` → batch-of-one。
+
+#### Step 1.D.2: 抓取 + 分組
+
+```bash
+python scripts/common/dependabot_fetch.py <host> <owner> <repo> \
+    [--state open] [--alert-number N] [--ecosystem pip,npm,go]
+```
+
+優先 `gh api`（Phase 0.3 preflight 已驗證 `gh auth status`），fallback 為
+`GITHUB_TOKEN` + `requests`（需 `security_events` scope）。輸出 JSON 含
+`source` / `alert_count` / `unsupported_ecosystems` / `groups[]`，分組鍵為
+`(language, manifest_path)`，同套件多筆警示收斂成一個 `target_version`
+（取最高 `first_patched`）。schema 細節見 reference 文件 §3。
+
+#### Step 1.D.3: 計畫呈現
+
+對 repo 跑 **一次** Phase 0 環境偵測（批次可跨多語言，每個 group 自帶 `language`）。
+渲染批次計畫表（依語言/manifest 分組，含 目標版本 / 最高嚴重度 / CVE 數 / 可自動修）。
+現況版本與 major-jump 不在計畫階段臆測（警示 payload 無安裝版本，留待各項 Phase 2 的
+dep_tree 確認）。另列「無法自動修」與「不支援 ecosystem」兩個 call-out。表格範本見
+reference 文件 §4。
+
+#### Step 1.D.4: 核可關卡（暫停等待使用者）
+
+兩個選擇（範本見 reference 文件 §4）：
+
+- **升哪些**：`all`（CVE 驅動預設）/ `crit+high` / 指定編號。
+- **PR 怎麼包**：`per-package`（推薦，每套件各一 branch+PR）/ `per-group` / `combined`
+  —— 取捨見 reference 文件 §6。
+
+#### Step 1.D.5: 保存 dependabot_context 並批次編排
+
+在 session 保留：
+
+```
+dependabot_context = {
+  "host": "...", "owner": "...", "repo": "...",
+  "alerts_url": "https://.../security/dependabot",
+  "pr_strategy": "per-package" | "per-group" | "combined",
+  "items": [ { "language", "manifest", "package", "target_version",
+               "alerts": [ { "ghsa_id", "cve_id", "html_url" } ],
+               "status": "pending" } ]   # pending|done|skipped|failed|blocked
+}
+```
+
+**批次編排迴圈**（細節見 reference 文件 §5–§7）：
+
+1. **建工作佇列**：選中項目依嚴重度排序（`critical → high → medium → low`）。
+   `patched_available:false` 不進佇列，列入報告「無法自動修」。
+2. **逐項跑 Phase 2 → 7**（共 N 項）：每項宣告 `▶ [i/N] …`；target 套件 + 目標版本
+   已知（**跳過 Phase 1**）；`cve_context`（alerts 的 cve_id/ghsa_id/html_url）帶進去
+   重用情況 B 的 reachability 與風險分級（**不重跑 CVE 查詢**）；branch/snapshot 依
+   `pr_strategy`（§6）。
+3. **逐項狀態機**：`done` / `failed` / `skipped` / `blocked` 寫回 `items[i].status`。
+   **錯誤隔離（鐵則）**：任一項失敗 → 標 `failed`、`snapshot_env restore`、**繼續下一項**，
+   絕不中止整批。
+4. **彙整報告**：全跑完後用自然語言寫批次摘要（狀態表 + 「無法自動修」/「不支援
+   ecosystem」/「合併後自動關閉的警示」三個 call-out）。每個 PR 加 trailer
+   （`Dependabot: <alerts_url>` / `GHSA:` / `CVE:`）。Dependabot 在修補合併後自動關閉
+   警示，**不需要 API write-back**。
 
 ---
 
