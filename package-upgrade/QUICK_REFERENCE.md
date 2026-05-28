@@ -306,6 +306,42 @@ Skill 會詢問是否改用 REST API + token：
 
 ---
 
+## 🛡️ Dependabot 批次 (可選)
+
+### 觸發方式
+
+```
+# Dependabot 安全警示頁面 URL（github.com 或企業 GHE）
+https://github.com/OWNER/REPO/security/dependabot
+
+# 單一警示 → batch-of-one
+https://github.com/OWNER/REPO/security/dependabot/123
+```
+
+### 流程
+
+| Phase | 行為 |
+|-------|------|
+| 1.D | 解析 URL → `dependabot_fetch.py` 抓所有 open 警示 → 依語言/manifest 分組 → 出計畫 ✋ |
+| 核可 | 選升哪些 (`all` / `crit+high` / 編號) + PR 怎麼包 (`per-package` / `per-group` / `combined`) ✋ |
+| 2-6 | 對每個項目重用標準升級流程（帶 CVE context；單項失敗不中止整批） |
+| 7 | 彙整批次摘要；每個 PR 加 `Dependabot:` / `GHSA:` / `CVE:` trailer |
+
+### 認證
+
+- 優先 `gh api`（沿用 `gh auth`，企業 host 走 `--hostname`）
+- fallback：`GITHUB_TOKEN`（需 `security_events` scope）+ `requests`
+- 補 scope：`gh auth refresh -h github.com -s security_events`
+
+### 收斂規則
+
+- 同套件多警示 → 一個目標版本（取最高 `first_patched`）
+- 無 patched version → 列「無法自動修」，不臆造版本
+- 非 pip/npm/go 的 ecosystem → 列「不支援」，排除升級
+- 合併 PR 後 Dependabot 自動關閉警示，**不需要 API write-back**
+
+---
+
 ## 📚 詳細文件
 
 ### Python
@@ -329,5 +365,6 @@ Skill 會詢問是否改用 REST API + token：
 ### 跨語言
 - **breaking_change_patterns.md** - 通用 pattern
 - **jira_workflow.md** - Jira 整合詳細流程 (Phase 1.C, 7.5, 7.6)
+- **dependabot_workflow.md** - Dependabot 批次模式詳細流程 (Phase 1.D)
 - **bdsa_mapping.md** - BDSA → CVE 對應
 - **auth_tokens.md** - 各種 auth token 的安全寫入方式

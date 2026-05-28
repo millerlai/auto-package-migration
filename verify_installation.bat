@@ -90,7 +90,7 @@ if exist "!SKILL_DIR!\SKILL.md" (
 REM 4. 檢查 scripts (per-language 子目錄: common / python / javascript / go)
 echo.
 echo 4. 檢查 Scripts...
-for %%f in (fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh jira_comment.py jira_fetch.py jira_transition.py) do call :check_one common "%%f"
+for %%f in (fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py) do call :check_one common "%%f"
 for %%f in (detect_env.sh dep_tree.py ast_scanner.py run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh api_surface_diff.sh pip_audit.sh) do call :check_one python "%%f"
 for %%f in (detect_env.sh dep_tree.js ast_scanner.js api_surface_diff.js git_diff.sh run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh runtime_verify.js) do call :check_one javascript "%%f"
 for %%f in (detect_env.sh dep_tree.sh dep_tree.py ast_scanner.go api_surface_diff.sh git_diff.sh run_tests.sh snapshot_env.sh preflight.sh govulncheck.sh validate_modfile.sh) do call :check_one go "%%f"
@@ -105,7 +105,7 @@ call :check_shebang "!SKILL_DIR!\scripts\common\fetch_changelog.py" "common/fetc
 REM 6. 檢查 references (per-language 子目錄)
 echo.
 echo 6. 檢查 Reference 文件...
-for %%f in (auth_tokens.md bdsa_mapping.md breaking_change_patterns.md important_dependency_update.md jira_workflow.md) do call :check_ref common "%%f"
+for %%f in (auth_tokens.md bdsa_mapping.md breaking_change_patterns.md important_dependency_update.md jira_workflow.md dependabot_workflow.md) do call :check_ref common "%%f"
 for %%f in (breaking_change_patterns.md override_semantics.md pip_lock_patterns.md pip_workflow.md poetry_workflow.md runtime_verification.md uv_workflow.md) do call :check_ref python "%%f"
 for %%f in (ast_strategy.md breaking_change_patterns.md npm_workflow.md override_semantics.md pnpm_workflow.md runtime_verification.md workflow.md yarn_workflow.md) do call :check_ref javascript "%%f"
 for %%f in (breaking_change_patterns.md govulncheck.md major_version_paths.md replace_semantics.md runtime_verification.md workflow.md) do call :check_ref go "%%f"
