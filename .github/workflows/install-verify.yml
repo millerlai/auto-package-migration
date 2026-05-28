@@ -63,6 +63,12 @@ jobs:
         shell: cmd
         run: .\install.bat --project --yes
 
+      - name: Verify installation (verify_installation.bat)
+        shell: cmd
+        env:
+          PACKAGE_UPGRADE_SKILLS_ROOT: .\.claude\skills
+        run: .\verify_installation.bat
+
       - name: Assert skills copied and JS deps installed under javascript/
         shell: bash
         run: |

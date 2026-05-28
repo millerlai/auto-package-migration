@@ -413,8 +413,9 @@ echo 安裝位置: !TARGET_DIR!
 echo.
 echo %BLUE%下一步:%NC%
 echo.
-echo 1. 驗證安裝 (若無 .bat 版可在 Git Bash / WSL 內執行 .sh):
-echo    bash verify_installation.sh
+echo 1. 驗證安裝:
+echo    verify_installation.bat       (Windows)
+echo    bash verify_installation.sh   (Git Bash / WSL)
 echo.
 echo 2. 測試使用:
 echo    claude
