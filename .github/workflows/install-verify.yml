@@ -13,6 +13,25 @@ on:
     branches: [master]
 
 jobs:
+  # Line-ending guard. The cygwin job below can't catch CRLF: it sets
+  # core.autocrlf=false before checkout and runs bash with -o igncr, so .sh
+  # files are always LF there and any stray CR is ignored. This job inspects
+  # the committed bytes directly — independent of any checkout/shell setting —
+  # so a CRLF .sh (which makes Cygwin bash fail with $'\r') turns CI red.
+  line-endings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert shell scripts have no CRLF
+        run: |
+          crlf=$(grep -lUP '\r$' $(git ls-files '*.sh') || true)
+          if [ -n "$crlf" ]; then
+            echo "These .sh files contain CRLF — Cygwin/bash will fail with \$'\r':"
+            echo "$crlf"
+            exit 1
+          fi
+          echo "OK: all tracked .sh files are LF-only"
+
   linux:
     runs-on: ubuntu-latest
     env:
