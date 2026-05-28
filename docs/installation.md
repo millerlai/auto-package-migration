@@ -32,7 +32,11 @@ bash install-cygwin64.sh
 ### 2. 驗證
 
 ```bash
+# macOS / Linux / Cygwin64
 bash verify_installation.sh
+
+# Windows (PowerShell / cmd)
+verify_installation.bat
 ```
 
 預期看到 `✓ 安裝驗證通過!`。
