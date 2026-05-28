@@ -1,0 +1,4 @@
+# Shell scripts must use LF endings so they run under bash / Cygwin on Windows.
+# Without this, core.autocrlf=true rewrites them to CRLF on checkout and bash
+# fails with "$'\r': command not found".
+*.sh text eol=lf
