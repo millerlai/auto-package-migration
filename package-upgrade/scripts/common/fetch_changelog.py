@@ -66,7 +66,7 @@ def fetch_from_github_releases(repo_url: str) -> Optional[tuple[str, str, str]]:
     try:
         # Parse GitHub repo URL
         # Supports: https://github.com/owner/repo or git@github.com:owner/repo.git
-        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", repo_url)
         if not match:
             return None
 
@@ -115,7 +115,7 @@ def fetch_from_common_files(repo_url: str) -> Optional[tuple[str, str, str]]:
     """
     try:
         # Parse GitHub repo URL
-        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", repo_url)
         if not match:
             return None
 
@@ -173,14 +173,16 @@ def _resolve_tag(owner: str, repo: str, version: str) -> Optional[str]:
     return None
 
 
-def fetch_from_github_compare(repo_url: str, old_version: str, new_version: str) -> Optional[tuple[str, str, str]]:
+def fetch_from_github_compare(
+    repo_url: str, old_version: str, new_version: str
+) -> Optional[tuple[str, str, str]]:
     """Fallback: list commits between two version tags using the GitHub Compare API.
 
     Useful for packages that ship git tags but no GitHub Releases (common for
     libs maintained by individuals).
     """
     try:
-        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", repo_url)
         if not match:
             return None
         owner, repo = match.groups()
@@ -222,7 +224,7 @@ def fetch_from_github_tag_annotation(repo_url: str, version: str) -> Optional[tu
     Some maintainers put release notes only in `git tag -a v1.2.3 -m '...'`.
     """
     try:
-        match = re.search(r'github\.com[:/]([^/]+)/([^/\.]+)', repo_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", repo_url)
         if not match:
             return None
         owner, repo = match.groups()
@@ -258,7 +260,10 @@ def fetch_from_github_tag_annotation(repo_url: str, version: str) -> Optional[tu
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python fetch_changelog.py <package_name> <git_repo_url> [<old_version> <new_version>]", file=sys.stderr)
+        print(
+            "Usage: python fetch_changelog.py <package_name> <git_repo_url> [<old_version> <new_version>]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     package_name = sys.argv[1]

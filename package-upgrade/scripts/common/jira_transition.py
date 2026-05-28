@@ -55,13 +55,15 @@ def list_transitions(site: str, key: str) -> dict:
     data = resp.json()
     transitions = []
     for t in data.get("transitions", []) or []:
-        transitions.append({
-            "id": t.get("id"),
-            "name": t.get("name"),
-            "to_status": (t.get("to") or {}).get("name"),
-            "to_category": ((t.get("to") or {}).get("statusCategory") or {}).get("key"),
-            "has_screen": t.get("hasScreen", False),
-        })
+        transitions.append(
+            {
+                "id": t.get("id"),
+                "name": t.get("name"),
+                "to_status": (t.get("to") or {}).get("name"),
+                "to_category": ((t.get("to") or {}).get("statusCategory") or {}).get("key"),
+                "has_screen": t.get("hasScreen", False),
+            }
+        )
     return {"issue": key, "transitions": transitions}
 
 
@@ -86,7 +88,9 @@ def apply_transition(site: str, key: str, transition_id: str, resolution: str | 
             body = resp.json()
         except ValueError:
             body = {"raw": resp.text}
-        raise RuntimeError(f"400 Bad Request — workflow rejected the transition: {json.dumps(body, ensure_ascii=False)}")
+        raise RuntimeError(
+            f"400 Bad Request — workflow rejected the transition: {json.dumps(body, ensure_ascii=False)}"
+        )
     _check(resp, key)
     # transition endpoint returns 204 No Content on success
     return {
@@ -101,7 +105,10 @@ def main() -> int:
     if len(sys.argv) < 4:
         print("Usage:", file=sys.stderr)
         print(f"  {sys.argv[0]} list <site_host> <issue_key>", file=sys.stderr)
-        print(f"  {sys.argv[0]} apply <site_host> <issue_key> <transition_id> [resolution_name]", file=sys.stderr)
+        print(
+            f"  {sys.argv[0]} apply <site_host> <issue_key> <transition_id> [resolution_name]",
+            file=sys.stderr,
+        )
         return 2
 
     cmd = sys.argv[1]
@@ -113,7 +120,10 @@ def main() -> int:
             result = list_transitions(sys.argv[2], sys.argv[3])
         elif cmd == "apply":
             if len(sys.argv) not in (5, 6):
-                print(f"Usage: {sys.argv[0]} apply <site_host> <issue_key> <transition_id> [resolution_name]", file=sys.stderr)
+                print(
+                    f"Usage: {sys.argv[0]} apply <site_host> <issue_key> <transition_id> [resolution_name]",
+                    file=sys.stderr,
+                )
                 return 2
             resolution = sys.argv[5] if len(sys.argv) == 6 else None
             result = apply_transition(sys.argv[2], sys.argv[3], sys.argv[4], resolution)

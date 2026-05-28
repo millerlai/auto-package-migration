@@ -12,6 +12,7 @@ permission, or a comma-separated list of keys from GH_ALLOW (e.g.
 The script is idempotent: re-running adds nothing if every entry already exists.
 Existing settings outside `permissions.allow` / `permissions.ask` are left untouched.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -106,9 +107,9 @@ COMMON_ASK = [
 # per-item). Keys are stable contract between install.sh and this script.
 GH_ALLOW = {
     "auth_status": "Bash(gh auth status:*)",
-    "pr_create":   "Bash(gh pr create:*)",
-    "pr_view":     "Bash(gh pr view:*)",
-    "api":         "Bash(gh api:*)",
+    "pr_create": "Bash(gh pr create:*)",
+    "pr_view": "Bash(gh pr view:*)",
+    "api": "Bash(gh api:*)",
 }
 
 SCRIPT_ALLOW_BY_MODE = {
@@ -175,15 +176,19 @@ def merge(existing: list, additions: list) -> tuple[list, list]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--settings", required=True, help="Path to settings.json (created if missing)")
+    parser.add_argument(
+        "--settings", required=True, help="Path to settings.json (created if missing)"
+    )
     parser.add_argument("--mode", required=True, choices=["global", "project"])
     parser.add_argument(
         "--gh-entries",
         default="none",
         help="gh CLI permissions to include: 'none' (default), 'all', or comma-separated keys "
-             f"({','.join(GH_ALLOW)})",
+        f"({','.join(GH_ALLOW)})",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print what would change without writing")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print what would change without writing"
+    )
     args = parser.parse_args()
 
     settings_path = Path(args.settings).expanduser()

@@ -4,6 +4,7 @@ Subprocess-driven Go calls aren't exercised here — they need a real `go`
 toolchain. We focus on the deterministic helpers: path/version manipulation
 and the `go.mod` parser.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -12,15 +13,14 @@ from pathlib import Path
 # Load scripts/go/dep_tree.py explicitly — it can't sit on sys.path because
 # scripts/python/dep_tree.py would shadow it under the same module name.
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "package-upgrade" / "scripts"
-_spec = importlib.util.spec_from_file_location(
-    "dep_tree_go", _SCRIPTS_DIR / "go" / "dep_tree.py"
-)
+_spec = importlib.util.spec_from_file_location("dep_tree_go", _SCRIPTS_DIR / "go" / "dep_tree.py")
 dtg = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dtg)
 
 # --------------------------------------------------------------------------- #
 # strip_major_suffix
 # --------------------------------------------------------------------------- #
+
 
 class TestStripMajorSuffix:
     def test_strips_v2(self):
@@ -45,6 +45,7 @@ class TestStripMajorSuffix:
 # --------------------------------------------------------------------------- #
 # major_of
 # --------------------------------------------------------------------------- #
+
 
 class TestMajorOf:
     def test_v1(self):
@@ -73,6 +74,7 @@ class TestMajorOf:
 # module_path_for_version
 # --------------------------------------------------------------------------- #
 
+
 class TestModulePathForVersion:
     def test_v1_no_suffix(self):
         assert dtg.module_path_for_version("ex.com/foo", "v1.5.0") == "ex.com/foo"
@@ -94,6 +96,7 @@ class TestModulePathForVersion:
 # --------------------------------------------------------------------------- #
 # version_tuple — used for sorting
 # --------------------------------------------------------------------------- #
+
 
 class TestVersionTuple:
     def test_basic_ordering(self):
@@ -131,15 +134,11 @@ class TestVersionTuple:
 # parse_gomod
 # --------------------------------------------------------------------------- #
 
+
 class TestParseGomod:
     def test_basic_module_and_go_directives(self, tmp_path: Path):
         f = tmp_path / "go.mod"
-        f.write_text(
-            "module github.com/foo/bar\n"
-            "\n"
-            "go 1.21\n"
-            "toolchain go1.21.5\n"
-        )
+        f.write_text("module github.com/foo/bar\n" "\n" "go 1.21\n" "toolchain go1.21.5\n")
         out = dtg.parse_gomod(str(f))
         assert out["module"] == "github.com/foo/bar"
         assert out["go"] == "1.21"
@@ -147,22 +146,14 @@ class TestParseGomod:
 
     def test_single_line_require(self, tmp_path: Path):
         f = tmp_path / "go.mod"
-        f.write_text(
-            "module x\n"
-            "go 1.21\n"
-            "require github.com/foo/bar v1.0.0\n"
-        )
+        f.write_text("module x\n" "go 1.21\n" "require github.com/foo/bar v1.0.0\n")
         out = dtg.parse_gomod(str(f))
         assert out["direct"] == {"github.com/foo/bar": "v1.0.0"}
         assert out["indirect"] == {}
 
     def test_single_line_indirect(self, tmp_path: Path):
         f = tmp_path / "go.mod"
-        f.write_text(
-            "module x\n"
-            "go 1.21\n"
-            "require github.com/lib/x v1.0.0 // indirect\n"
-        )
+        f.write_text("module x\n" "go 1.21\n" "require github.com/lib/x v1.0.0 // indirect\n")
         out = dtg.parse_gomod(str(f))
         assert out["indirect"] == {"github.com/lib/x": "v1.0.0"}
         assert out["direct"] == {}
@@ -206,11 +197,7 @@ class TestParseGomod:
 
     def test_replace_directive_without_old_version(self, tmp_path: Path):
         f = tmp_path / "go.mod"
-        f.write_text(
-            "module x\n"
-            "go 1.21\n"
-            "replace github.com/a/foo => ./local/foo\n"
-        )
+        f.write_text("module x\n" "go 1.21\n" "replace github.com/a/foo => ./local/foo\n")
         out = dtg.parse_gomod(str(f))
         assert len(out["replace"]) == 1
         r = out["replace"][0]
@@ -236,11 +223,7 @@ class TestParseGomod:
 
     def test_exclude_single_line(self, tmp_path: Path):
         f = tmp_path / "go.mod"
-        f.write_text(
-            "module x\n"
-            "go 1.21\n"
-            "exclude github.com/a/foo v1.0.0\n"
-        )
+        f.write_text("module x\n" "go 1.21\n" "exclude github.com/a/foo v1.0.0\n")
         out = dtg.parse_gomod(str(f))
         assert out["exclude"] == [{"path": "github.com/a/foo", "version": "v1.0.0"}]
 

@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/ast_scanner.py."""
+
 from __future__ import annotations
 
 import ast
@@ -9,6 +10,7 @@ import ast_scanner
 # --------------------------------------------------------------------------- #
 # PackageUsageVisitor — visit_Import / visit_ImportFrom
 # --------------------------------------------------------------------------- #
+
 
 def _visit(source: str, package: str) -> ast_scanner.PackageUsageVisitor:
     tree = ast.parse(source)
@@ -85,6 +87,7 @@ class TestVisitImportFrom:
 # PackageUsageVisitor — visit_Name / visit_Attribute
 # --------------------------------------------------------------------------- #
 
+
 class TestUsageTracking:
     def test_name_usage_recorded(self):
         v = _visit("from requests import get\nget('http://x')\n", "requests")
@@ -112,6 +115,7 @@ class TestUsageTracking:
 # --------------------------------------------------------------------------- #
 # _get_context
 # --------------------------------------------------------------------------- #
+
 
 class TestGetContext:
     def test_context_includes_line(self):
@@ -141,6 +145,7 @@ class TestGetContext:
 # _resolve_attr_chain
 # --------------------------------------------------------------------------- #
 
+
 class TestResolveAttrChain:
     def test_resolve_two_level(self):
         v = ast_scanner.PackageUsageVisitor("requests", [])
@@ -163,6 +168,7 @@ class TestResolveAttrChain:
 # --------------------------------------------------------------------------- #
 # scan_file
 # --------------------------------------------------------------------------- #
+
 
 class TestScanFile:
     def test_scan_file_returns_none_when_unused(self, tmp_path: Path):
@@ -195,6 +201,7 @@ class TestScanFile:
 # --------------------------------------------------------------------------- #
 # scan_project
 # --------------------------------------------------------------------------- #
+
 
 class TestScanProject:
     def test_scan_project_finds_matches(self, tmp_path: Path):

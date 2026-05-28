@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/common/parse_pm_errors.py."""
+
 from __future__ import annotations
 
 import parse_pm_errors as ppe
@@ -6,6 +7,7 @@ import parse_pm_errors as ppe
 # --------------------------------------------------------------------------- #
 # extract_pkg_and_registry
 # --------------------------------------------------------------------------- #
+
 
 class TestExtractPkgAndRegistry:
     def test_extracts_scoped_npm_package(self):
@@ -33,6 +35,7 @@ class TestExtractPkgAndRegistry:
 # --------------------------------------------------------------------------- #
 # classify — per category
 # --------------------------------------------------------------------------- #
+
 
 class TestClassifyAuth:
     def test_yn0041(self):
@@ -128,6 +131,7 @@ class TestClassifyPatch:
 # --------------------------------------------------------------------------- #
 # classify — global behaviour
 # --------------------------------------------------------------------------- #
+
 
 class TestClassifyGlobal:
     def test_empty_input(self):

@@ -52,7 +52,7 @@ def get_dep_tree_pip(project_path: str) -> Dict[str, Any]:
             capture_output=True,
             text=True,
             cwd=project_path,
-            check=True
+            check=True,
         )
         return {"data": json.loads(result.stdout), "format": "json"}
     except subprocess.CalledProcessError as e:
@@ -69,7 +69,7 @@ def get_dep_tree_poetry(project_path: str) -> Dict[str, Any]:
             capture_output=True,
             text=True,
             cwd=project_path,
-            check=True
+            check=True,
         )
         return {"raw": result.stdout, "format": "text"}
     except subprocess.CalledProcessError as e:
@@ -82,11 +82,7 @@ def get_dep_tree_uv(project_path: str) -> Dict[str, Any]:
     """Get dependency tree using uv pip tree."""
     try:
         result = subprocess.run(
-            ["uv", "pip", "tree"],
-            capture_output=True,
-            text=True,
-            cwd=project_path,
-            check=True
+            ["uv", "pip", "tree"], capture_output=True, text=True, cwd=project_path, check=True
         )
         return {"raw": result.stdout, "format": "text"}
     except subprocess.CalledProcessError as e:
@@ -105,10 +101,7 @@ def get_installed_version(package_name: str, pkg_manager: str, project_path: str
 
     try:
         result = subprocess.run(
-            cmds.get(pkg_manager, cmds["pip"]),
-            capture_output=True,
-            text=True,
-            cwd=project_path
+            cmds.get(pkg_manager, cmds["pip"]), capture_output=True, text=True, cwd=project_path
         )
         for line in result.stdout.splitlines():
             if line.lower().startswith("version:"):
@@ -119,7 +112,9 @@ def get_installed_version(package_name: str, pkg_manager: str, project_path: str
     return "unknown"
 
 
-def find_parents_in_tree(package_name: str, tree_data: Any, format_type: str = "json") -> Tuple[List[str], Dict[str, str]]:
+def find_parents_in_tree(
+    package_name: str, tree_data: Any, format_type: str = "json"
+) -> Tuple[List[str], Dict[str, str]]:
     """Recursively search dependency tree to find parent packages.
 
     Returns:
@@ -137,7 +132,13 @@ def find_parents_in_tree(package_name: str, tree_data: Any, format_type: str = "
     return parents, constraints
 
 
-def _search_json_tree(target: str, node: Dict, parents: List[str], constraints: Dict[str, str], parent_name: Optional[str] = None):
+def _search_json_tree(
+    target: str,
+    node: Dict,
+    parents: List[str],
+    constraints: Dict[str, str],
+    parent_name: Optional[str] = None,
+):
     """Helper to recursively search JSON tree structure."""
     pkg_name = node.get("package_name", node.get("key", "")).lower()
 
@@ -163,10 +164,7 @@ def _search_json_tree(target: str, node: Dict, parents: List[str], constraints: 
 
 
 def classify_dependency(
-    package_name: str,
-    dep_tree: Dict[str, Any],
-    dep_files: List[str],
-    format_type: str = "json"
+    package_name: str, dep_tree: Dict[str, Any], dep_files: List[str], format_type: str = "json"
 ) -> Dict[str, Any]:
     """Classify package as direct, transitive, or both dependency."""
     is_direct = False
@@ -174,7 +172,7 @@ def classify_dependency(
     version_constraints = {}
 
     # Check if package is directly declared in dependency files
-    package_pattern = re.compile(rf'^{re.escape(package_name)}\b', re.MULTILINE | re.IGNORECASE)
+    package_pattern = re.compile(rf"^{re.escape(package_name)}\b", re.MULTILINE | re.IGNORECASE)
 
     for dep_file in dep_files:
         try:
@@ -186,9 +184,7 @@ def classify_dependency(
             continue
 
     # Find parent packages from dependency tree
-    parent_packages, version_constraints = find_parents_in_tree(
-        package_name, dep_tree, format_type
-    )
+    parent_packages, version_constraints = find_parents_in_tree(package_name, dep_tree, format_type)
 
     is_transitive = len(parent_packages) > 0
 
@@ -219,7 +215,7 @@ def classify_dependency(
 # parse ambiguity so callers can mark status="unknown" instead of guessing.
 # --------------------------------------------------------------------------- #
 
-_SPEC_OP = re.compile(r'\s*(===|==|>=|<=|!=|~=|>|<)\s*([\w.+*\-]+)\s*')
+_SPEC_OP = re.compile(r"\s*(===|==|>=|<=|!=|~=|>|<)\s*([\w.+*\-]+)\s*")
 
 
 def parse_version_spec(spec: str) -> List[Tuple[str, str]]:
@@ -230,7 +226,7 @@ def parse_version_spec(spec: str) -> List[Tuple[str, str]]:
     if not spec:
         return []
     out: List[Tuple[str, str]] = []
-    for piece in spec.split(','):
+    for piece in spec.split(","):
         m = _SPEC_OP.match(piece.strip())
         if m:
             out.append((m.group(1), m.group(2)))
@@ -247,16 +243,16 @@ def version_tuple(v: str) -> Tuple[int, ...]:
     if not v:
         return ()
     # Strip epoch (the part before '!')
-    if '!' in v:
-        v = v.split('!', 1)[1]
+    if "!" in v:
+        v = v.split("!", 1)[1]
     # Strip local-version segment ('+local')
-    v = v.split('+', 1)[0]
+    v = v.split("+", 1)[0]
     # Strip anything from first non-(digit|dot)
-    m = re.match(r'^(\d+(?:\.\d+)*)', v)
+    m = re.match(r"^(\d+(?:\.\d+)*)", v)
     if not m:
         return ()
     parts = []
-    for p in m.group(1).split('.'):
+    for p in m.group(1).split("."):
         if not p.isdigit():
             return ()
         parts.append(int(p))
@@ -288,28 +284,28 @@ def spec_allows(spec: str, version: str) -> Optional[bool]:
     if not v:
         return None
     for op, ver in ops:
-        if '*' in ver or op in ('~=', '==='):
+        if "*" in ver or op in ("~=", "==="):
             return None
         t = version_tuple(ver)
         if not t:
             return None
         cmp = _cmp(v, t)
-        if op == '==':
+        if op == "==":
             if cmp != 0:
                 return False
-        elif op == '!=':
+        elif op == "!=":
             if cmp == 0:
                 return False
-        elif op == '>=':
+        elif op == ">=":
             if cmp < 0:
                 return False
-        elif op == '<=':
+        elif op == "<=":
             if cmp > 0:
                 return False
-        elif op == '>':
+        elif op == ">":
             if cmp <= 0:
                 return False
-        elif op == '<':
+        elif op == "<":
             if cmp >= 0:
                 return False
         else:
@@ -321,9 +317,10 @@ def spec_allows(spec: str, version: str) -> Optional[bool]:
 # PyPI probing for parent_analyses
 # --------------------------------------------------------------------------- #
 
+
 def _normalize_pypi_name(name: str) -> str:
     """PyPI normalises names: lowercase, runs of [-_.] collapse to single '-'."""
-    return re.sub(r'[-_.]+', '-', name.lower())
+    return re.sub(r"[-_.]+", "-", name.lower())
 
 
 def fetch_pypi_metadata(package_name: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
@@ -336,9 +333,7 @@ def fetch_pypi_metadata(package_name: str, timeout: int = 10) -> Optional[Dict[s
     if _requests is None:
         return None
     try:
-        resp = _requests.get(
-            f"https://pypi.org/pypi/{package_name}/json", timeout=timeout
-        )
+        resp = _requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=timeout)
         if resp.status_code != 200:
             return None
         return resp.json()
@@ -360,18 +355,18 @@ def extract_target_spec_from_requires(
     """
     target_norm = _normalize_pypi_name(target_name)
     for req in requires_dist or []:
-        bare = req.split(';', 1)[0].strip()
+        bare = req.split(";", 1)[0].strip()
         # Match: name + optional (spec) + optional spec_without_parens
         m = re.match(
-            r'^([A-Za-z0-9_.\-]+)\s*(?:\[(.*?)\])?\s*(?:\(([^)]*)\))?\s*([<>=!~].*)?$',
+            r"^([A-Za-z0-9_.\-]+)\s*(?:\[(.*?)\])?\s*(?:\(([^)]*)\))?\s*([<>=!~].*)?$",
             bare,
         )
         if not m:
             continue
         if _normalize_pypi_name(m.group(1)) != target_norm:
             continue
-        paren_spec = (m.group(3) or '').strip()
-        trailing_spec = (m.group(4) or '').strip()
+        paren_spec = (m.group(3) or "").strip()
+        trailing_spec = (m.group(4) or "").strip()
         return True, paren_spec or trailing_spec
     return False, ""
 
@@ -463,10 +458,10 @@ def analyze_parent(
 # Confidence weights for bump_parent strategies — mirrors dep_tree_go.py's
 # weighting so the LLM can reason uniformly across languages.
 _PARENT_STATUS_CONFIDENCE = {
-    "satisfies":          0.75,
+    "satisfies": 0.75,
     "would_not_help_pin": 0.05,
-    "no_dep":             0.10,
-    "unknown":            0.25,
+    "no_dep": 0.10,
+    "unknown": 0.25,
 }
 
 
@@ -491,18 +486,20 @@ def compose_strategies(
     constraints = classification.get("version_constraints", {}) or {}
 
     if is_direct:
-        strategies.append({
-            "type": "direct_bump",
-            "confidence": 0.95,
-            "rationale": (
-                "Target is a direct dependency. Bump the declaration "
-                "(pyproject.toml / requirements.txt) and refresh the lock file."
-            ),
-            "apply_hint": (
-                "poetry add <pkg>@<ver>  |  uv add '<pkg>>=<ver>'  |  "
-                "edit requirements.txt + pip install --upgrade"
-            ),
-        })
+        strategies.append(
+            {
+                "type": "direct_bump",
+                "confidence": 0.95,
+                "rationale": (
+                    "Target is a direct dependency. Bump the declaration "
+                    "(pyproject.toml / requirements.txt) and refresh the lock file."
+                ),
+                "apply_hint": (
+                    "poetry add <pkg>@<ver>  |  uv add '<pkg>>=<ver>'  |  "
+                    "edit requirements.txt + pip install --upgrade"
+                ),
+            }
+        )
 
     if is_transitive and has_lockfile and target_version and constraints:
         # All current parent constraints must allow the target version. If any
@@ -511,63 +508,69 @@ def compose_strategies(
         # lock-only that the resolver later rejects.
         allow_results = [spec_allows(c, target_version) for c in constraints.values()]
         if all(r is True for r in allow_results):
-            strategies.append({
-                "type": "lock_only",
-                "confidence": 0.85,
-                "status": "satisfies",
-                "rationale": (
-                    f"All {len(constraints)} parent constraint(s) already allow "
-                    f"{target_version}. Refresh the lock only; manifest untouched."
-                ),
-                "apply_hint": (
-                    "poetry update <pkg>  |  uv lock --upgrade-package <pkg>  |  "
-                    "pip-compile --upgrade-package <pkg> requirements.in"
-                ),
-            })
+            strategies.append(
+                {
+                    "type": "lock_only",
+                    "confidence": 0.85,
+                    "status": "satisfies",
+                    "rationale": (
+                        f"All {len(constraints)} parent constraint(s) already allow "
+                        f"{target_version}. Refresh the lock only; manifest untouched."
+                    ),
+                    "apply_hint": (
+                        "poetry update <pkg>  |  uv lock --upgrade-package <pkg>  |  "
+                        "pip-compile --upgrade-package <pkg> requirements.in"
+                    ),
+                }
+            )
 
     if is_transitive and parent_analyses:
         for pa in parent_analyses:
             status = pa.get("status", "unknown")
-            strategies.append({
-                "type": "bump_parent",
-                "parent": pa["name"],
-                "confidence": _PARENT_STATUS_CONFIDENCE.get(status, 0.25),
-                "status": status,
-                "reason": pa.get("reason", ""),
-                "rationale": (
-                    f"Bump direct parent `{pa['name']}` to "
-                    f"{pa.get('latest') or 'latest'} — analysis: {status}."
-                ),
-                "apply_hint": (
-                    f"poetry add {pa['name']}@latest  |  "
-                    f"uv add '{pa['name']}>={pa.get('latest', '')}'"
-                ),
-            })
+            strategies.append(
+                {
+                    "type": "bump_parent",
+                    "parent": pa["name"],
+                    "confidence": _PARENT_STATUS_CONFIDENCE.get(status, 0.25),
+                    "status": status,
+                    "reason": pa.get("reason", ""),
+                    "rationale": (
+                        f"Bump direct parent `{pa['name']}` to "
+                        f"{pa.get('latest') or 'latest'} — analysis: {status}."
+                    ),
+                    "apply_hint": (
+                        f"poetry add {pa['name']}@latest  |  "
+                        f"uv add '{pa['name']}>={pa.get('latest', '')}'"
+                    ),
+                }
+            )
 
     # bump_parent_then_target: only when transitive and nothing else fired
     if is_transitive and not is_direct and not strategies:
-        strategies.append({
-            "type": "bump_parent_then_target",
-            "confidence": 0.30,
-            "rationale": (
-                "No viable lock_only or bump_parent path. Likely needs upstream "
-                "to release a parent version that widens the constraint, then "
-                "re-attempt target upgrade."
-            ),
-            "apply_hint": (
-                "Identify the blocking parent(s); request upstream widen their "
-                "version constraint, then re-run this skill."
-            ),
-        })
+        strategies.append(
+            {
+                "type": "bump_parent_then_target",
+                "confidence": 0.30,
+                "rationale": (
+                    "No viable lock_only or bump_parent path. Likely needs upstream "
+                    "to release a parent version that widens the constraint, then "
+                    "re-attempt target upgrade."
+                ),
+                "apply_hint": (
+                    "Identify the blocking parent(s); request upstream widen their "
+                    "version constraint, then re-run this skill."
+                ),
+            }
+        )
 
     if not strategies:
-        strategies.append({
-            "type": "unknown",
-            "confidence": 0.0,
-            "rationale": (
-                "Could not classify an upgrade path. Manual review required."
-            ),
-        })
+        strategies.append(
+            {
+                "type": "unknown",
+                "confidence": 0.0,
+                "rationale": ("Could not classify an upgrade path. Manual review required."),
+            }
+        )
 
     strategies.sort(key=lambda s: s["confidence"], reverse=True)
     return strategies
@@ -577,24 +580,29 @@ def compose_strategies(
 # Entry point
 # --------------------------------------------------------------------------- #
 
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze dependency tree for a package")
     parser.add_argument("project_path", help="Path to the project directory")
     parser.add_argument("package_name", help="Name of the package to analyze")
-    parser.add_argument("--pkg-manager", choices=["pip", "poetry", "uv"], default="pip",
-                       help="Package manager to use")
-    parser.add_argument("--target-version", default="",
-                       help="Desired version for parent analysis (PyPI probing)")
-    parser.add_argument("--no-probe", action="store_true",
-                       help="Skip PyPI probing for parent_analyses (offline mode)")
+    parser.add_argument(
+        "--pkg-manager",
+        choices=["pip", "poetry", "uv"],
+        default="pip",
+        help="Package manager to use",
+    )
+    parser.add_argument(
+        "--target-version", default="", help="Desired version for parent analysis (PyPI probing)"
+    )
+    parser.add_argument(
+        "--no-probe",
+        action="store_true",
+        help="Skip PyPI probing for parent_analyses (offline mode)",
+    )
     args = parser.parse_args()
 
     # Get dependency tree based on package manager
-    tree_funcs = {
-        "pip": get_dep_tree_pip,
-        "poetry": get_dep_tree_poetry,
-        "uv": get_dep_tree_uv
-    }
+    tree_funcs = {"pip": get_dep_tree_pip, "poetry": get_dep_tree_poetry, "uv": get_dep_tree_uv}
 
     dep_tree = tree_funcs[args.pkg_manager](args.project_path)
     format_type = dep_tree.get("format", "json")
@@ -605,24 +613,37 @@ def main():
     # Find dependency files
     dep_files_raw = subprocess.run(
         [
-            "find", args.project_path, "-maxdepth", "2",
-            "(", "-name", "requirements*.txt", "-o", "-name", "pyproject.toml",
-            "-o", "-name", "setup.py", "-o", "-name", "setup.cfg", ")",
-            "-not", "-path", "*/.venv/*",
-            "-not", "-path", "*/venv/*"
+            "find",
+            args.project_path,
+            "-maxdepth",
+            "2",
+            "(",
+            "-name",
+            "requirements*.txt",
+            "-o",
+            "-name",
+            "pyproject.toml",
+            "-o",
+            "-name",
+            "setup.py",
+            "-o",
+            "-name",
+            "setup.cfg",
+            ")",
+            "-not",
+            "-path",
+            "*/.venv/*",
+            "-not",
+            "-path",
+            "*/venv/*",
         ],
         capture_output=True,
-        text=True
+        text=True,
     )
     dep_files = [f for f in dep_files_raw.stdout.strip().splitlines() if f]
 
     # Classify dependency
-    classification = classify_dependency(
-        args.package_name,
-        dep_tree,
-        dep_files,
-        format_type
-    )
+    classification = classify_dependency(args.package_name, dep_tree, dep_files, format_type)
 
     # Lockfile hint: any of these counts. Cheap detection — caller already has
     # the authoritative answer from detect_env.sh, but we want this script to
@@ -630,8 +651,13 @@ def main():
     project_root = Path(args.project_path)
     has_lockfile = any(
         (project_root / name).exists()
-        for name in ("poetry.lock", "uv.lock", "requirements.lock",
-                     "requirements.txt.lock", "requirements-lock.txt")
+        for name in (
+            "poetry.lock",
+            "uv.lock",
+            "requirements.lock",
+            "requirements.txt.lock",
+            "requirements-lock.txt",
+        )
     )
 
     # Probe each direct parent for whether bumping it would help reach target_version

@@ -22,6 +22,7 @@ NC='\033[0m'
 # 預設安裝模式
 MODE="global"
 SKIP_PERMISSIONS="false"
+ASSUME_YES="false"   # --yes / -y, or CI / PACKAGE_UPGRADE_ASSUME_YES=1
 
 # 解析參數
 for arg in "$@"; do
@@ -29,9 +30,10 @@ for arg in "$@"; do
         --project) MODE="project" ;;
         --global)  MODE="global"  ;;
         --skip-permissions) SKIP_PERMISSIONS="true" ;;
+        --yes|-y) ASSUME_YES="true" ;;
         -h|--help)
             cat <<EOF
-Usage: bash install-cygwin64.sh [--global|--project] [--skip-permissions]
+Usage: bash install-cygwin64.sh [--global|--project] [--skip-permissions] [--yes]
 
   --global              Install to \$USERPROFILE/.claude/skills/package-upgrade
                         (i.e. C:\\Users\\<you>\\.claude\\skills\\package-upgrade,
@@ -40,11 +42,35 @@ Usage: bash install-cygwin64.sh [--global|--project] [--skip-permissions]
   --project             Install to ./.claude/skills/package-upgrade
   --skip-permissions    Don't offer to write the recommended Claude Code
                         permissions into settings.json
+  --yes, -y             Non-interactive: assume yes to install/overwrite/deps
+                        prompts (also implied by CI or PACKAGE_UPGRADE_ASSUME_YES=1).
+                        Implies --skip-permissions.
 EOF
             exit 0
             ;;
     esac
 done
+
+# 非互動模式: 也由 CI / PACKAGE_UPGRADE_ASSUME_YES=1 觸發
+if [ -n "${CI:-}" ] || [ "${PACKAGE_UPGRADE_ASSUME_YES:-}" = "1" ]; then
+    ASSUME_YES="true"
+fi
+if [ "$ASSUME_YES" = "true" ]; then
+    SKIP_PERMISSIONS="true"
+fi
+
+# confirm <prompt> <default-when-non-interactive: y|n> -> 0=yes, 1=no
+confirm() {
+    if [ "$ASSUME_YES" = "true" ]; then
+        echo "${1}[auto:${2}]"
+        [ "$2" = "y" ]
+        return
+    fi
+    local reply
+    read -p "$1" -n 1 -r reply
+    echo
+    [[ $reply =~ ^[Yy]$ ]]
+}
 
 echo -e "${BLUE}=========================================="
 echo "Package Upgrade Skill 安裝程式 (Cygwin64 / Git Bash)"
@@ -67,13 +93,15 @@ fi
 # 把 Windows 風格的 USERPROFILE 轉成 unix 風格 (e.g. C:\Users\me -> /c/Users/me)
 WIN_HOME_UNIX="$(cygpath -u "$USERPROFILE")"
 
-# 檢查是否在專案根目錄
-if [ ! -d "package-upgrade" ]; then
-    echo -e "${RED}錯誤: 請在專案根目錄執行此腳本${NC}"
-    echo "目前路徑: $(pwd)"
-    echo "預期看到: package-upgrade/ 目錄"
-    exit 1
-fi
+# 檢查是否在專案根目錄 (兩個 skill 都要在)
+for skill in package-upgrade package-upgrade-feedback; do
+    if [ ! -d "$skill" ]; then
+        echo -e "${RED}錯誤: 請在專案根目錄執行此腳本${NC}"
+        echo "目前路徑: $(pwd)"
+        echo "預期看到: $skill/ 目錄"
+        exit 1
+    fi
+done
 
 # Python 偵測: 依序 python3 / python / py -3,再 fallback 到常見 Windows 安裝路徑
 detect_python() {
@@ -131,6 +159,9 @@ else
     echo -e "${GREEN}安裝模式: 專案級安裝${NC}"
     echo "安裝位置: $TARGET_DIR"
 fi
+# feedback skill 與主 skill 共用同一個 skills 根目錄
+SKILLS_ROOT="$(dirname "$TARGET_DIR")"
+FEEDBACK_DIR="$SKILLS_ROOT/package-upgrade-feedback"
 
 if [ -n "$PY" ]; then
     echo "Python 解譯器: $PY"
@@ -139,9 +170,7 @@ else
 fi
 
 echo ""
-read -p "繼續安裝? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+if ! confirm "繼續安裝? (y/N) " y; then
     echo "安裝已取消"
     exit 0
 fi
@@ -149,31 +178,35 @@ fi
 # 建立目標目錄
 echo ""
 echo -e "${BLUE}步驟 1/8: 建立目錄${NC}"
-mkdir -p "$(dirname "$TARGET_DIR")"
+mkdir -p "$SKILLS_ROOT"
 
-if [ -d "$TARGET_DIR" ]; then
-    echo -e "${YELLOW}警告: 目標目錄已存在,將會覆蓋${NC}"
-    read -p "確定要覆蓋嗎? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+if [ -d "$TARGET_DIR" ] || [ -d "$FEEDBACK_DIR" ]; then
+    echo -e "${YELLOW}警告: 下列 skill 目錄已存在,將會覆蓋${NC}"
+    [ -d "$TARGET_DIR" ] && echo "  - $TARGET_DIR"
+    [ -d "$FEEDBACK_DIR" ] && echo "  - $FEEDBACK_DIR"
+    if ! confirm "確定要覆蓋嗎? (y/N) " y; then
         echo "安裝已取消"
         exit 0
     fi
-    rm -rf "$TARGET_DIR"
+    rm -rf "$TARGET_DIR" "$FEEDBACK_DIR"
 fi
 
-# 複製檔案
+# 複製檔案 (兩個 skill)
 echo ""
 echo -e "${BLUE}步驟 2/8: 複製檔案${NC}"
 cp -r package-upgrade "$TARGET_DIR"
+cp -r package-upgrade-feedback "$FEEDBACK_DIR"
 echo -e "${GREEN}✓ 檔案已複製${NC}"
 
 # 設定執行權限 (Windows 檔案系統會無視,但 Cygwin 掛載點上仍有效)
 echo ""
 echo -e "${BLUE}步驟 3/8: 設定執行權限${NC}"
-chmod +x "$TARGET_DIR"/scripts/*.sh 2>/dev/null || true
-chmod +x "$TARGET_DIR"/scripts/*.py 2>/dev/null || true
-chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
+# scripts/ 含 per-language 子目錄 (common/python/javascript/go),chmod 必須遞迴。
+for skill_dir in "$TARGET_DIR" "$FEEDBACK_DIR"; do
+    [ -d "$skill_dir/scripts" ] || continue
+    find "$skill_dir/scripts" \( -name '*.sh' -o -name '*.py' -o -name '*.js' \) \
+        -exec chmod +x {} + 2>/dev/null || true
+done
 echo -e "${GREEN}✓ 執行權限已設定 (Windows 檔系統會忽略此屬性,屬正常現象)${NC}"
 
 # 檢查並安裝 Python 依賴
@@ -196,9 +229,7 @@ else
 
     if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
         echo -e "${YELLOW}缺少依賴: ${MISSING_DEPS[*]}${NC}"
-        read -p "是否安裝? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if confirm "是否安裝? (y/N) " y; then
             $PY -m pip install "${MISSING_DEPS[@]}"
             echo -e "${GREEN}✓ 依賴已安裝${NC}"
         else
@@ -222,19 +253,19 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  Python 套件升級不受影響。"
 elif ! command -v npm >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ 偵測到 node 但找不到 npm${NC}"
-    echo "  JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令"
+    echo "  JavaScript 支援會缺少 javascript/dep_tree.js 與 javascript/api_surface_diff.js 所需的 npm 命令"
 else
     NODE_VER=$(node --version 2>/dev/null || echo "unknown")
     echo "  node 版本: $NODE_VER"
-    if [ -f "$TARGET_DIR/scripts/package.json" ]; then
+    if [ -f "$TARGET_DIR/scripts/javascript/package.json" ]; then
         echo "  安裝 @babel/parser, @babel/traverse, ts-morph, semver..."
-        if (cd "$TARGET_DIR/scripts" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1); then
-            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/node_modules${NC}"
+        if (cd "$TARGET_DIR/scripts/javascript" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1); then
+            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/javascript/node_modules${NC}"
         else
-            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts && npm install${NC}"
+            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts/javascript && npm install${NC}"
         fi
     else
-        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/package.json,跳過 Node 依賴安裝${NC}"
+        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/javascript/package.json,跳過 Node 依賴安裝${NC}"
     fi
 fi
 
@@ -302,9 +333,7 @@ if command -v gh >/dev/null 2>&1; then
 else
     echo -e "${YELLOW}未偵測到 gh CLI${NC}"
     echo "  gh 用於 Phase 7 自動建立 GitHub PR; 沒裝的話 skill 會 fallback 為印 URL 讓你手動建。"
-    read -p "  是否現在安裝 gh? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if confirm "  是否現在安裝 gh? (y/N) " n; then
         install_gh
         # 重新檢查 — 自動裝可能成功也可能失敗;手動裝完按 Enter 後也要再驗一次
         if command -v gh >/dev/null 2>&1; then
@@ -324,9 +353,7 @@ if [ "$GH_AVAILABLE" = "true" ]; then
         echo -e "${GREEN}✓ gh 已認證${NC}"
     else
         echo -e "${YELLOW}gh 尚未認證 — Skill 建立 PR 時會失敗${NC}"
-        read -p "  現在執行 gh auth login? (y/N) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if confirm "  現在執行 gh auth login? (y/N) " n; then
             gh auth login || echo -e "${YELLOW}⚠ gh auth login 未完成,可日後手動執行: gh auth login${NC}"
         else
             echo "  已跳過。日後請執行: gh auth login"
@@ -480,5 +507,5 @@ fi
 
 echo ""
 echo "更多資訊請參考:"
-echo "  - INSTALLATION_GUIDE.md"
+echo "  - docs/installation.md"
 echo "  - package-upgrade/README.md"

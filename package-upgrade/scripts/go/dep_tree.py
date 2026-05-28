@@ -76,6 +76,7 @@ from pathlib import Path
 # Helpers
 # --------------------------------------------------------------------------- #
 
+
 def run(
     cmd: list[str],
     cwd: str | None = None,
@@ -98,8 +99,12 @@ def run(
 
     try:
         r = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True,
-            timeout=timeout, env=full_env,
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=full_env,
         )
         return r.returncode, r.stdout, r.stderr
     except FileNotFoundError:
@@ -158,6 +163,7 @@ def version_tuple(v: str) -> tuple:
 # go.mod parsing
 # --------------------------------------------------------------------------- #
 
+
 def parse_gomod(path: str) -> dict:
     """Parse go.mod into structured form.
 
@@ -178,8 +184,13 @@ def parse_gomod(path: str) -> dict:
         return {"error": f"cannot read go.mod: {e}"}
 
     out = {
-        "module": "", "go": "", "toolchain": "",
-        "direct": {}, "indirect": {}, "replace": [], "exclude": [],
+        "module": "",
+        "go": "",
+        "toolchain": "",
+        "direct": {},
+        "indirect": {},
+        "replace": [],
+        "exclude": [],
     }
 
     m = re.search(r"^module\s+(\S+)", text, re.M)
@@ -201,9 +212,7 @@ def parse_gomod(path: str) -> dict:
     # Tokenize require statements (both single-line and block form)
     def iter_require_entries():
         # Single-line: `require <path> <ver> [// indirect]`
-        for m in re.finditer(
-            r"^\s*require\s+(\S+)\s+(\S+)(.*)$", text, re.M
-        ):
+        for m in re.finditer(r"^\s*require\s+(\S+)\s+(\S+)(.*)$", text, re.M):
             path, ver, tail = m.group(1), m.group(2), m.group(3)
             yield path, ver, "// indirect" in tail
 
@@ -231,7 +240,8 @@ def parse_gomod(path: str) -> dict:
     def iter_replace_entries():
         for m in re.finditer(
             r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$",
-            text, re.M,
+            text,
+            re.M,
         ):
             yield m.group(1), m.group(2) or "", m.group(3), m.group(4) or ""
         for blk in re.finditer(r"^replace\s*\(\s*$(.*?)^\)\s*$", text, re.M | re.S):
@@ -240,17 +250,19 @@ def parse_gomod(path: str) -> dict:
                 line = raw.strip()
                 if not line or line.startswith("//"):
                     continue
-                mm = re.match(
-                    r"(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$", line
-                )
+                mm = re.match(r"(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$", line)
                 if mm:
                     yield mm.group(1), mm.group(2) or "", mm.group(3), mm.group(4) or ""
 
     for old, old_ver, new, new_ver in iter_replace_entries():
-        out["replace"].append({
-            "old": old, "old_version": old_ver,
-            "new": new, "new_version": new_ver,
-        })
+        out["replace"].append(
+            {
+                "old": old,
+                "old_version": old_ver,
+                "new": new,
+                "new_version": new_ver,
+            }
+        )
 
     # exclude directives
     for m in re.finditer(r"^\s*exclude\s+(\S+)\s+(\S+)", text, re.M):
@@ -272,12 +284,14 @@ def parse_gomod(path: str) -> dict:
 # Lookups via `go list` / `go mod graph`
 # --------------------------------------------------------------------------- #
 
+
 def go_list_all_modules(project_path: str) -> tuple[list[dict], list[str]]:
     """`go list -mod=mod -m -json all` → list of module info dicts."""
     errors = []
     rc, out, err = run(
         ["go", "list", "-mod=readonly", "-m", "-json", "all"],
-        cwd=project_path, timeout=60,
+        cwd=project_path,
+        timeout=60,
     )
     if rc != 0:
         errors.append(f"go list -m all failed (rc={rc}): {err.strip()[:300]}")
@@ -306,7 +320,8 @@ def go_list_replace(project_path: str, module_path: str) -> dict | None:
     """Get replace info for a single module via `go list -m -json <path>`."""
     rc, out, _ = run(
         ["go", "list", "-mod=readonly", "-m", "-json", module_path],
-        cwd=project_path, timeout=15,
+        cwd=project_path,
+        timeout=15,
     )
     if rc != 0:
         return None
@@ -335,7 +350,8 @@ def go_mod_graph(project_path: str) -> str:
 def go_list_versions(project_path: str, module_path: str) -> list[str]:
     rc, out, _ = run(
         ["go", "list", "-mod=readonly", "-m", "-versions", module_path],
-        cwd=project_path, timeout=20,
+        cwd=project_path,
+        timeout=20,
     )
     if rc != 0:
         return []
@@ -358,7 +374,8 @@ def go_mod_why(project_path: str, module_path: str) -> str:
     """
     rc, out, _ = run(
         ["go", "mod", "why", "-m", module_path],
-        cwd=project_path, timeout=20,
+        cwd=project_path,
+        timeout=20,
     )
     if rc != 0:
         return "unknown"
@@ -379,14 +396,13 @@ def fetch_parent_mod_via_scratch(parent_path: str, version: str) -> str | None:
     cache hits for speed), but no project files are written.
     """
     with tempfile.TemporaryDirectory(prefix="dep_tree_go_probe_") as td:
-        Path(td, "go.mod").write_text(
-            "module scratch_probe\n\ngo 1.21\n", encoding="utf-8"
-        )
+        Path(td, "go.mod").write_text("module scratch_probe\n\ngo 1.21\n", encoding="utf-8")
         # `download -json` is allowed even with -mod=readonly; explicitly
         # override GOFLAGS in case readonly blocks the fetch on some Go versions.
         rc, out, _ = run(
             ["go", "mod", "download", "-json", f"{parent_path}@{version}"],
-            cwd=td, timeout=45,
+            cwd=td,
+            timeout=45,
             env={"GOFLAGS": "-mod=mod"},
         )
         if rc != 0:
@@ -404,9 +420,7 @@ def fetch_parent_mod_via_scratch(parent_path: str, version: str) -> str | None:
     return None
 
 
-def parse_target_in_parent_mod(
-    mod_text: str, target_base: str
-) -> tuple[str, dict | None]:
+def parse_target_in_parent_mod(mod_text: str, target_base: str) -> tuple[str, dict | None]:
     """Parse a parent's .mod text for what it pins / replaces for target.
 
     Returns:
@@ -434,9 +448,7 @@ def parse_target_in_parent_mod(
             break
     if not require_version:
         # Block-form requires
-        for blk in re.finditer(
-            r"^require\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S
-        ):
+        for blk in re.finditer(r"^require\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S):
             for raw in blk.group(1).splitlines():
                 line = raw.strip().split("//")[0].strip()
                 if not line:
@@ -451,7 +463,8 @@ def parse_target_in_parent_mod(
     # Single-line replaces
     for m in re.finditer(
         r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$",
-        mod_text, re.M,
+        mod_text,
+        re.M,
     ):
         if base(m.group(1)) == target_base:
             replace_info = {
@@ -460,16 +473,12 @@ def parse_target_in_parent_mod(
             }
             break
     if not replace_info:
-        for blk in re.finditer(
-            r"^replace\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S
-        ):
+        for blk in re.finditer(r"^replace\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S):
             for raw in blk.group(1).splitlines():
                 line = raw.strip().split("//")[0].strip()
                 if not line:
                     continue
-                mm = re.match(
-                    r"(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$", line
-                )
+                mm = re.match(r"(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$", line)
                 if mm and base(mm.group(1)) == target_base:
                     replace_info = {
                         "new_path": mm.group(3),
@@ -516,9 +525,7 @@ def analyze_parent(
 
     mod_text = fetch_parent_mod_via_scratch(parent_path, latest)
     if mod_text is None:
-        info["reason"] = (
-            f"could not download {parent_path}@{latest} .mod for inspection"
-        )
+        info["reason"] = f"could not download {parent_path}@{latest} .mod for inspection"
         return info
 
     pinned, replaced = parse_target_in_parent_mod(mod_text, target_base)
@@ -539,9 +546,7 @@ def analyze_parent(
 
     if not pinned:
         info["status"] = "no_dep"
-        info["reason"] = (
-            f"{parent_path}@{latest} no longer requires {target_base}"
-        )
+        info["reason"] = f"{parent_path}@{latest} no longer requires {target_base}"
         return info
 
     if target_version and version_tuple(pinned) >= version_tuple(target_version):
@@ -559,9 +564,7 @@ def analyze_parent(
     return info
 
 
-def probe_major_variants(
-    project_path: str, base_path: str, max_major: int = 9
-) -> list[dict]:
+def probe_major_variants(project_path: str, base_path: str, max_major: int = 9) -> list[dict]:
     """For v2..v9, try `go list -m -versions <base>/vN` and record what's available."""
     out = []
     for major in range(2, max_major + 1):
@@ -570,11 +573,13 @@ def probe_major_variants(
         if not versions:
             continue
         sorted_v = sorted(versions, key=version_tuple)
-        out.append({
-            "path": path,
-            "latest": sorted_v[-1],
-            "version_count": len(versions),
-        })
+        out.append(
+            {
+                "path": path,
+                "latest": sorted_v[-1],
+                "version_count": len(versions),
+            }
+        )
     return out
 
 
@@ -663,6 +668,7 @@ def walk_parents(
 # Upgrade strategies
 # --------------------------------------------------------------------------- #
 
+
 def compose_strategies(ctx: dict) -> list[dict]:
     """Build candidate strategies, each with a `confidence` 0..1.
     The list is returned sorted by confidence descending.
@@ -695,39 +701,41 @@ def compose_strategies(ctx: dict) -> list[dict]:
 
     # 1. major_version_rewrite — when applicable, it's the only valid path
     if is_major_jump and target_path:
-        s.append({
-            "type": "major_version_rewrite",
-            "confidence": 0.95,
-            "rationale": (
-                f"Target version {target_version} is a major-version jump "
-                f"({current_ver or 'absent'} → {target_version}). Go modules require "
-                f"rewriting all import paths from `{current_path or target_base}` to "
-                f"`{target_path}`. This is invasive — every .go file importing this "
-                f"package needs editing."
-            ),
-            "old_path": current_path or target_base,
-            "new_path": target_path,
-            "apply_hint": (
-                f"gomajor get {target_path}@{tv}  # automates import rewrites"
-            ),
-            "fallback_hint": (
-                f"go get {target_path}@{tv} && "
-                "(rewrite imports via ast_scanner_go output) && go mod tidy"
-            ),
-        })
+        s.append(
+            {
+                "type": "major_version_rewrite",
+                "confidence": 0.95,
+                "rationale": (
+                    f"Target version {target_version} is a major-version jump "
+                    f"({current_ver or 'absent'} → {target_version}). Go modules require "
+                    f"rewriting all import paths from `{current_path or target_base}` to "
+                    f"`{target_path}`. This is invasive — every .go file importing this "
+                    f"package needs editing."
+                ),
+                "old_path": current_path or target_base,
+                "new_path": target_path,
+                "apply_hint": (f"gomajor get {target_path}@{tv}  # automates import rewrites"),
+                "fallback_hint": (
+                    f"go get {target_path}@{tv} && "
+                    "(rewrite imports via ast_scanner_go output) && go mod tidy"
+                ),
+            }
+        )
 
     # 2. direct_bump — straightforward
     if is_direct and not is_major_jump:
-        s.append({
-            "type": "direct_bump",
-            "confidence": 0.95,
-            "rationale": (
-                f"Target is a direct dependency in go.mod ({current_ver}). "
-                "Bump in-place with `go get`."
-            ),
-            "current_version": current_ver,
-            "apply_hint": f"go get {current_path}@{tv} && go mod tidy",
-        })
+        s.append(
+            {
+                "type": "direct_bump",
+                "confidence": 0.95,
+                "rationale": (
+                    f"Target is a direct dependency in go.mod ({current_ver}). "
+                    "Bump in-place with `go get`."
+                ),
+                "current_version": current_ver,
+                "apply_hint": f"go get {current_path}@{tv} && go mod tidy",
+            }
+        )
 
     # 3. bump_parent — confidence depends on parent_analyses
     if is_indirect and direct_parents:
@@ -740,17 +748,14 @@ def compose_strategies(ctx: dict) -> list[dict]:
                 "type": "bump_parent",
                 "target": p,
                 "apply_hint": (
-                    f"go get {p}@latest && go mod tidy  "
-                    f"# then verify {target_base} got bumped"
+                    f"go get {p}@latest && go mod tidy  " f"# then verify {target_base} got bumped"
                 ),
             }
             if analysis:
                 status = analysis["status"]
                 strat["parent_latest_version"] = analysis["latest"]
                 strat["parent_pins_target_to"] = analysis["pins_target_to"]
-                strat["parent_uses_replace_for_target"] = (
-                    analysis["uses_replace_for_target"]
-                )
+                strat["parent_uses_replace_for_target"] = analysis["uses_replace_for_target"]
 
                 if status == "satisfies":
                     base_conf = 0.85
@@ -804,9 +809,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
                 else:  # "unknown"
                     strat["confidence"] = 0.50
                     strat["status"] = "unknown"
-                    strat["reason"] = analysis["reason"] or (
-                        "could not probe parent's latest .mod"
-                    )
+                    strat["reason"] = analysis["reason"] or ("could not probe parent's latest .mod")
                     strat["rationale"] = (
                         f"Parent `{p}` could not be probed — fall back to manual "
                         f"check: `go mod download -json {p}@latest`."
@@ -859,9 +862,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
             replace_warning = "Existing replace directive present; " + replace_warning
 
         # Compute boost conditions
-        any_parent_satisfies = any(
-            a.get("status") == "satisfies" for a in parent_analyses
-        )
+        any_parent_satisfies = any(a.get("status") == "satisfies" for a in parent_analyses)
         add_replace_strat: dict = {
             "type": "add_replace",
             "patch_hint": (
@@ -888,24 +889,23 @@ def compose_strategies(ctx: dict) -> list[dict]:
         else:
             add_replace_strat["confidence"] = 0.20
             add_replace_strat["rationale"] = (
-                "Last resort: add a `replace` directive to pin the target. "
-                + replace_warning
+                "Last resort: add a `replace` directive to pin the target. " + replace_warning
             )
         s.append(add_replace_strat)
 
     # not_present + target_version → recommend adding it as direct dep
     if dep_type == "not_present" and target_version:
-        s.append({
-            "type": "direct_bump",
-            "confidence": 0.95,
-            "rationale": (
-                f"Target {target_base} is not currently in go.mod. `go get` "
-                "will add it as a new direct dependency."
-            ),
-            "apply_hint": (
-                f"go get {target_path or target_base}@{tv} && go mod tidy"
-            ),
-        })
+        s.append(
+            {
+                "type": "direct_bump",
+                "confidence": 0.95,
+                "rationale": (
+                    f"Target {target_base} is not currently in go.mod. `go get` "
+                    "will add it as a new direct dependency."
+                ),
+                "apply_hint": (f"go get {target_path or target_base}@{tv} && go mod tidy"),
+            }
+        )
 
     # Sort by confidence descending (stable for ties)
     s.sort(key=lambda x: x.get("confidence", 0.0), reverse=True)
@@ -915,6 +915,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -930,19 +931,31 @@ def main() -> int:
     errors: list[str] = []
 
     if not Path(project, "go.mod").exists():
-        print(json.dumps({
-            "package_name": pkg_name,
-            "language": "go",
-            "pkg_manager": "unknown",
-            "error": "go.mod not found in project",
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "package_name": pkg_name,
+                    "language": "go",
+                    "pkg_manager": "unknown",
+                    "error": "go.mod not found in project",
+                },
+                indent=2,
+            )
+        )
         return 1
 
     gomod = parse_gomod(str(Path(project, "go.mod")))
     if "error" in gomod:
         errors.append(gomod["error"])
-        gomod = {"module": "", "direct": {}, "indirect": {}, "replace": [],
-                 "go": "", "toolchain": "", "exclude": []}
+        gomod = {
+            "module": "",
+            "direct": {},
+            "indirect": {},
+            "replace": [],
+            "go": "",
+            "toolchain": "",
+            "exclude": [],
+        }
 
     target_base = strip_major_suffix(pkg_name)
 
@@ -1007,8 +1020,7 @@ def main() -> int:
         graph = go_mod_graph(project)
         if graph:
             direct_dep_names = set(gomod.get("direct", {}).keys())
-            walked = walk_parents(graph, current_module_path, direct_dep_names,
-                                  gomod.get("module"))
+            walked = walk_parents(graph, current_module_path, direct_dep_names, gomod.get("module"))
             direct_parents = walked["direct_parents"]
             transitive_parents = walked["transitive_parents"]
             parent_chains = walked["chains"]
@@ -1022,8 +1034,7 @@ def main() -> int:
         if available_versions and current_version:
             cm = major_of(current_version)
             if cm is not None:
-                same_major = [v for v in available_versions
-                              if major_of(v) == cm]
+                same_major = [v for v in available_versions if major_of(v) == cm]
                 if same_major:
                     latest_in_current_major = sorted(same_major, key=version_tuple)[-1]
 
@@ -1042,7 +1053,9 @@ def main() -> int:
                 pa = analyze_parent(project, p, target_base, target_version)
             except Exception as e:  # never let probe failure kill the report
                 pa = {
-                    "name": p, "latest": "", "pins_target_to": "",
+                    "name": p,
+                    "latest": "",
+                    "pins_target_to": "",
                     "uses_replace_for_target": None,
                     "status": "unknown",
                     "reason": f"probe raised: {e!r}",
@@ -1060,21 +1073,23 @@ def main() -> int:
             is_major_version_jump = True
 
     # ----- Strategies -----
-    strategies = compose_strategies({
-        "dependency_type": dep_type,
-        "is_direct": is_direct,
-        "is_indirect": is_indirect,
-        "is_major_version_jump": is_major_version_jump,
-        "target_base": target_base,
-        "target_version": target_version,
-        "current_module_path": current_module_path,
-        "current_version": current_version,
-        "target_module_path": target_module_path,
-        "direct_parents": direct_parents,
-        "replace_directive": replace_directive,
-        "go_mod_why_status": why_status,
-        "parent_analyses": parent_analyses,
-    })
+    strategies = compose_strategies(
+        {
+            "dependency_type": dep_type,
+            "is_direct": is_direct,
+            "is_indirect": is_indirect,
+            "is_major_version_jump": is_major_version_jump,
+            "target_base": target_base,
+            "target_version": target_version,
+            "current_module_path": current_module_path,
+            "current_version": current_version,
+            "target_module_path": target_module_path,
+            "direct_parents": direct_parents,
+            "replace_directive": replace_directive,
+            "go_mod_why_status": why_status,
+            "parent_analyses": parent_analyses,
+        }
+    )
 
     is_vendored = Path(project, "vendor", "modules.txt").exists()
 

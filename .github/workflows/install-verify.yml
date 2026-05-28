@@ -1,0 +1,76 @@
+name: install-verify
+
+# End-to-end installer coverage. ci.yml (ruff) and test.yml (pytest, incl. the
+# manifest-drift guard) already cover the skill tree; what they can't see is the
+# installers themselves placing files in the right place. This workflow runs the
+# real installers into a project-local dir and checks the result — it's what
+# catches path drift like the JS deps landing under the wrong scripts/ subdir.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }} # makes `gh auth status` pass -> no auth prompt
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install runtime prerequisites
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          python -m pip install pipdeptree requests
+
+      - name: Run install.sh (project-local, non-interactive)
+        run: bash install.sh --project --yes
+
+      - name: Verify installation
+        run: PACKAGE_UPGRADE_SKILLS_ROOT=./.claude/skills bash verify_installation.sh
+
+  # Guards the install.bat-specific drift fixed in this branch: its npm step must
+  # place @babel/* under scripts/javascript/node_modules, not the old flat scripts/.
+  windows:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install python deps
+        run: python -m pip install pipdeptree requests
+
+      - name: Run install.bat (project-local, non-interactive)
+        shell: cmd
+        run: .\install.bat --project --yes
+
+      - name: Assert skills copied and JS deps installed under javascript/
+        shell: bash
+        run: |
+          root=./.claude/skills
+          test -f "$root/package-upgrade/SKILL.md" \
+            || { echo "package-upgrade not installed"; exit 1; }
+          test -f "$root/package-upgrade-feedback/SKILL.md" \
+            || { echo "package-upgrade-feedback not installed"; exit 1; }
+          test -d "$root/package-upgrade/scripts/javascript/node_modules/@babel/parser" \
+            || { echo "JS deps missing under scripts/javascript — install.bat npm path drift regressed"; exit 1; }
+          echo "install.bat OK: skills copied and JS deps under scripts/javascript/"

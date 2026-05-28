@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/dep_tree.py."""
+
 from __future__ import annotations
 
 import json
@@ -12,14 +13,18 @@ import dep_tree
 # _search_json_tree
 # --------------------------------------------------------------------------- #
 
+
 class TestSearchJsonTree:
     def test_finds_direct_parent(self):
         # foo depends on requests
         node = {
             "package_name": "foo",
             "dependencies": [
-                {"package_name": "requests", "installed_version": "2.28.0",
-                 "required_version": ">=2.0"}
+                {
+                    "package_name": "requests",
+                    "installed_version": "2.28.0",
+                    "required_version": ">=2.0",
+                }
             ],
         }
         parents: list = []
@@ -31,9 +36,7 @@ class TestSearchJsonTree:
     def test_falls_back_to_installed_version(self):
         node = {
             "package_name": "foo",
-            "dependencies": [
-                {"package_name": "requests", "installed_version": "2.28.0"}
-            ],
+            "dependencies": [{"package_name": "requests", "installed_version": "2.28.0"}],
         }
         parents: list = []
         constraints: dict = {}
@@ -47,9 +50,7 @@ class TestSearchJsonTree:
             "dependencies": [
                 {
                     "package_name": "foo",
-                    "dependencies": [
-                        {"package_name": "requests", "required_version": ">=1.0"}
-                    ],
+                    "dependencies": [{"package_name": "requests", "required_version": ">=1.0"}],
                 }
             ],
         }
@@ -62,9 +63,7 @@ class TestSearchJsonTree:
     def test_case_insensitive_match(self):
         node = {
             "package_name": "Foo",
-            "dependencies": [
-                {"package_name": "Requests", "required_version": ">=2.0"}
-            ],
+            "dependencies": [{"package_name": "Requests", "required_version": ">=2.0"}],
         }
         parents: list = []
         constraints: dict = {}
@@ -72,9 +71,7 @@ class TestSearchJsonTree:
         assert parents == ["foo"]
 
     def test_no_match_keeps_lists_empty(self):
-        node = {"package_name": "foo", "dependencies": [
-            {"package_name": "other"}
-        ]}
+        node = {"package_name": "foo", "dependencies": [{"package_name": "other"}]}
         parents: list = []
         constraints: dict = {}
         dep_tree._search_json_tree("requests", node, parents, constraints)
@@ -100,15 +97,14 @@ class TestSearchJsonTree:
 # find_parents_in_tree
 # --------------------------------------------------------------------------- #
 
+
 class TestFindParentsInTree:
     def test_finds_parents_from_json_format(self):
         tree = {
             "data": [
                 {
                     "package_name": "foo",
-                    "dependencies": [
-                        {"package_name": "requests", "required_version": ">=2.0"}
-                    ],
+                    "dependencies": [{"package_name": "requests", "required_version": ">=2.0"}],
                 }
             ]
         }
@@ -133,6 +129,7 @@ class TestFindParentsInTree:
 # classify_dependency
 # --------------------------------------------------------------------------- #
 
+
 class TestClassifyDependency:
     def test_direct_only(self, tmp_path: Path):
         req = tmp_path / "requirements.txt"
@@ -151,9 +148,7 @@ class TestClassifyDependency:
             "data": [
                 {
                     "package_name": "flask",
-                    "dependencies": [
-                        {"package_name": "requests", "required_version": ">=2.0"}
-                    ],
+                    "dependencies": [{"package_name": "requests", "required_version": ">=2.0"}],
                 }
             ]
         }
@@ -170,9 +165,7 @@ class TestClassifyDependency:
             "data": [
                 {
                     "package_name": "flask",
-                    "dependencies": [
-                        {"package_name": "requests", "required_version": ">=2.0"}
-                    ],
+                    "dependencies": [{"package_name": "requests", "required_version": ">=2.0"}],
                 }
             ]
         }
@@ -188,9 +181,7 @@ class TestClassifyDependency:
 
     def test_missing_dep_file_doesnt_crash(self):
         tree = {"data": []}
-        result = dep_tree.classify_dependency(
-            "requests", tree, ["/nonexistent/file.txt"], "json"
-        )
+        result = dep_tree.classify_dependency("requests", tree, ["/nonexistent/file.txt"], "json")
         assert result["is_direct"] is False
         assert result["dependency_type"] == "unknown"
 
@@ -215,6 +206,7 @@ class TestClassifyDependency:
 # get_installed_version — mock subprocess
 # --------------------------------------------------------------------------- #
 
+
 class TestGetInstalledVersion:
     def test_parses_pip_show_version_line(self):
         fake_output = "Name: requests\nVersion: 2.28.1\nSummary: HTTP for humans\n"
@@ -236,7 +228,8 @@ class TestGetInstalledVersion:
 
     def test_handles_calledprocesserror(self):
         with patch.object(
-            subprocess, "run",
+            subprocess,
+            "run",
             side_effect=subprocess.CalledProcessError(1, ["pip"], stderr="err"),
         ):
             v = dep_tree.get_installed_version("x", "pip", ".")
@@ -254,6 +247,7 @@ class TestGetInstalledVersion:
 # --------------------------------------------------------------------------- #
 # get_dep_tree_* wrappers — mock subprocess
 # --------------------------------------------------------------------------- #
+
 
 class TestGetDepTreePip:
     def test_returns_parsed_json(self):
@@ -310,6 +304,7 @@ class TestGetDepTreeUv:
 # --------------------------------------------------------------------------- #
 # parse_version_spec / version_tuple / spec_allows
 # --------------------------------------------------------------------------- #
+
 
 class TestParseVersionSpec:
     def test_single_op(self):
@@ -392,6 +387,7 @@ class TestSpecAllows:
 # PyPI requires_dist parsing
 # --------------------------------------------------------------------------- #
 
+
 class TestExtractTargetSpec:
     def test_parens_form(self):
         reqs = ["requests (>=2.0,<3.0)", "click (>=8.0)"]
@@ -445,6 +441,7 @@ class TestExtractTargetSpec:
 # analyze_parent — uses fetch_pypi_metadata (mockable)
 # --------------------------------------------------------------------------- #
 
+
 class TestAnalyzeParent:
     def test_no_probe_returns_unknown(self):
         info = dep_tree.analyze_parent("flask", "requests", "2.32.0", probe_enabled=False)
@@ -491,7 +488,7 @@ class TestAnalyzeParent:
         meta = {
             "info": {
                 "version": "3.0.0",
-                "requires_dist": ["click>=8.0"],   # requests dropped
+                "requires_dist": ["click>=8.0"],  # requests dropped
             }
         }
         with patch.object(dep_tree, "fetch_pypi_metadata", return_value=meta):
@@ -502,7 +499,7 @@ class TestAnalyzeParent:
         meta = {
             "info": {
                 "version": "3.0.0",
-                "requires_dist": ["requests"],   # no spec
+                "requires_dist": ["requests"],  # no spec
             }
         }
         with patch.object(dep_tree, "fetch_pypi_metadata", return_value=meta):
@@ -513,6 +510,7 @@ class TestAnalyzeParent:
 # --------------------------------------------------------------------------- #
 # compose_strategies
 # --------------------------------------------------------------------------- #
+
 
 class TestComposeStrategies:
     def _direct(self, version_constraints=None):
@@ -567,8 +565,13 @@ class TestComposeStrategies:
     def test_bump_parent_emitted_per_parent_with_weighted_confidence(self):
         cls = self._transitive(["flask", "django"], {})
         analyses = [
-            {"name": "flask",  "latest": "3.0", "status": "satisfies",          "reason": "ok"},
-            {"name": "django", "latest": "5.0", "status": "would_not_help_pin", "reason": "still pins"},
+            {"name": "flask", "latest": "3.0", "status": "satisfies", "reason": "ok"},
+            {
+                "name": "django",
+                "latest": "5.0",
+                "status": "would_not_help_pin",
+                "reason": "still pins",
+            },
         ]
         strats = dep_tree.compose_strategies(
             cls, parent_analyses=analyses, has_lockfile=False, target_version="2.32.0"
@@ -577,7 +580,7 @@ class TestComposeStrategies:
         assert len(bumps) == 2
         # satisfies (0.75) ranked above would_not_help_pin (0.05)
         satisfies = next(s for s in bumps if s["parent"] == "flask")
-        blocked   = next(s for s in bumps if s["parent"] == "django")
+        blocked = next(s for s in bumps if s["parent"] == "django")
         assert satisfies["confidence"] > blocked["confidence"]
 
     def test_fallback_bump_parent_then_target_when_nothing_else(self):
@@ -591,8 +594,10 @@ class TestComposeStrategies:
     def test_unknown_when_classification_empty(self):
         cls = {
             "dependency_type": "unknown",
-            "is_direct": False, "is_transitive": False,
-            "parent_packages": [], "version_constraints": {},
+            "is_direct": False,
+            "is_transitive": False,
+            "parent_packages": [],
+            "version_constraints": {},
         }
         strats = dep_tree.compose_strategies(
             cls, parent_analyses=[], has_lockfile=False, target_version=None
