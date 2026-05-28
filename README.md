@@ -51,7 +51,18 @@ Or just type the natural-language trigger; the skill description auto-matches ph
 
 Use the slash form when you want explicit, deterministic invocation (e.g. a phrase Claude might otherwise interpret as a generic question). Use natural language when it's faster to type.
 
-Windows: `install.bat` (PowerShell) or `install-cygwin64.sh` (Cygwin).
+### Install / verify by platform
+
+`install.sh` / `verify_installation.sh` assume a POSIX `$HOME`. On Windows, use the variant that matches how you launch Claude Code — each installer pairs with its own verifier:
+
+| Platform | Install | Verify |
+|----------|---------|--------|
+| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` |
+| Windows (PowerShell / cmd) | `install.bat` | `verify_installation.bat` |
+| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` |
+
+The Cygwin64 variant installs into `%USERPROFILE%\.claude` (the path Windows-native Claude Code actually reads) rather than Cygwin's `$HOME`, so it must be paired with `verify_installation_cygwin64.sh` — not the plain `verify_installation.sh`.
+
 Full install / manual install / troubleshooting: **[`docs/installation.md`](docs/installation.md)**.
 
 ---

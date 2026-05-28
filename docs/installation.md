@@ -32,12 +32,17 @@ bash install-cygwin64.sh
 ### 2. 驗證
 
 ```bash
-# macOS / Linux / Cygwin64
+# macOS / Linux
 bash verify_installation.sh
 
 # Windows (PowerShell / cmd)
 verify_installation.bat
+
+# Cygwin64 / Git Bash / MSYS2
+bash verify_installation_cygwin64.sh
 ```
+
+> Cygwin64 用獨立的 verify：`install-cygwin64.sh` 裝到 `%USERPROFILE%\.claude`（Windows 原生 Claude Code 真正讀的路徑），`verify_installation_cygwin64.sh` 解析的是同一個路徑；一般 `verify_installation.sh` 走的是 Cygwin 的 `$HOME`，對不上。
 
 預期看到 `✓ 安裝驗證通過!`。
 

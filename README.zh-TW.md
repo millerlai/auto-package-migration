@@ -53,7 +53,17 @@ $ claude
 
 想要 deterministic 觸發（例如那句話 Claude 可能誤判成一般問題）時用 `/package-upgrade`；想打快就用自然語句。
 
-Windows：`install.bat`（PowerShell）或 `install-cygwin64.sh`（Cygwin）。
+### 各平台安裝 / 驗證
+
+`install.sh` / `verify_installation.sh` 假設 POSIX `$HOME`。Windows 上請依你啟動 Claude Code 的方式選對應變體，每個 install 都要搭配自己的 verify：
+
+| 平台 | 安裝 | 驗證 |
+|------|------|------|
+| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` |
+| Windows（PowerShell / cmd） | `install.bat` | `verify_installation.bat` |
+| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` |
+
+Cygwin64 變體會裝到 `%USERPROFILE%\.claude`（Windows 原生 Claude Code 真正讀的路徑），而非 Cygwin 的 `$HOME`，因此必須搭配 `verify_installation_cygwin64.sh`，不能用一般的 `verify_installation.sh`。
 
 完整安裝、手動安裝、故障排除、進階測試專案範本：[`docs/installation.md`](docs/installation.md)。
 
