@@ -172,7 +172,7 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  Python 套件升級不受影響。"
 elif ! command -v npm >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ 偵測到 node 但找不到 npm${NC}"
-    echo "  JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令"
+    echo "  JavaScript 支援會缺少 javascript/dep_tree.js 與 javascript/api_surface_diff.js 所需的 npm 命令"
 else
     NODE_VER=$(node --version 2>/dev/null || echo "unknown")
     echo "  node 版本: $NODE_VER"

@@ -93,16 +93,21 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
         else:
             body_text = body or ""
         author = (c.get("author") or {}).get("displayName", "unknown")
-        comments.append({
-            "author": author,
-            "created": c.get("created", ""),
-            "body": body_text,
-        })
+        comments.append(
+            {
+                "author": author,
+                "created": c.get("created", ""),
+                "body": body_text,
+            }
+        )
 
     return {
         "key": raw.get("key"),
-        "url": f"https://{raw.get('self', '').split('/rest/')[0].split('://')[-1]}/browse/{raw.get('key')}"
-            if raw.get("self") else None,
+        "url": (
+            f"https://{raw.get('self', '').split('/rest/')[0].split('://')[-1]}/browse/{raw.get('key')}"
+            if raw.get("self")
+            else None
+        ),
         "summary": fields.get("summary", ""),
         "status": (fields.get("status") or {}).get("name", ""),
         "issue_type": (fields.get("issuetype") or {}).get("name", ""),

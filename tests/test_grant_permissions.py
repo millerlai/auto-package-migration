@@ -1,4 +1,5 @@
 """Tests for grant_permissions.py at the repo root."""
+
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ import grant_permissions as gp
 # --------------------------------------------------------------------------- #
 # resolve_gh_entries
 # --------------------------------------------------------------------------- #
+
 
 class TestResolveGhEntries:
     def test_none_returns_empty(self):
@@ -52,13 +54,17 @@ class TestResolveGhEntries:
 # desired_entries
 # --------------------------------------------------------------------------- #
 
+
 class TestDesiredEntries:
     def test_global_mode_includes_global_script_paths(self):
         allow, ask = gp.desired_entries("global", "none")
         # one of the script paths should mention `~/.claude`
         assert any("~/.claude" in entry for entry in allow)
-        assert all(".claude/skills/package-upgrade" not in e
-                   or "~/.claude" in e for e in allow if "package-upgrade" in e)
+        assert all(
+            ".claude/skills/package-upgrade" not in e or "~/.claude" in e
+            for e in allow
+            if "package-upgrade" in e
+        )
 
     def test_project_mode_includes_local_script_paths(self):
         allow, ask = gp.desired_entries("project", "none")
@@ -92,6 +98,7 @@ class TestDesiredEntries:
 # --------------------------------------------------------------------------- #
 # merge — idempotency + ordering
 # --------------------------------------------------------------------------- #
+
 
 class TestMerge:
     def test_adds_new_items(self):
@@ -134,6 +141,7 @@ class TestMerge:
 # load_settings
 # --------------------------------------------------------------------------- #
 
+
 class TestLoadSettings:
     def test_returns_empty_dict_when_missing(self, tmp_path: Path):
         assert gp.load_settings(tmp_path / "nope.json") == {}
@@ -157,6 +165,7 @@ class TestLoadSettings:
 # main — full integration on a tmpfile
 # --------------------------------------------------------------------------- #
 
+
 class TestMain:
     def test_creates_settings_file_when_missing(self, tmp_path: Path, monkeypatch):
         target = tmp_path / "settings.json"
@@ -176,8 +185,7 @@ class TestMain:
         target = tmp_path / "settings.json"
         monkeypatch.setattr(
             "sys.argv",
-            ["grant_permissions", "--settings", str(target),
-             "--mode", "global", "--dry-run"],
+            ["grant_permissions", "--settings", str(target), "--mode", "global", "--dry-run"],
         )
         rc = gp.main()
         assert rc == 0
@@ -197,8 +205,15 @@ class TestMain:
         target = tmp_path / "settings.json"
         monkeypatch.setattr(
             "sys.argv",
-            ["grant_permissions", "--settings", str(target),
-             "--mode", "global", "--gh-entries", "all"],
+            [
+                "grant_permissions",
+                "--settings",
+                str(target),
+                "--mode",
+                "global",
+                "--gh-entries",
+                "all",
+            ],
         )
         gp.main()
         data = json.loads(target.read_text())
@@ -210,8 +225,15 @@ class TestMain:
         target = tmp_path / "settings.json"
         monkeypatch.setattr(
             "sys.argv",
-            ["grant_permissions", "--settings", str(target),
-             "--mode", "global", "--gh-entries", "not_a_real_key"],
+            [
+                "grant_permissions",
+                "--settings",
+                str(target),
+                "--mode",
+                "global",
+                "--gh-entries",
+                "not_a_real_key",
+            ],
         )
         with pytest.raises(SystemExit) as exc:
             gp.main()
@@ -219,10 +241,14 @@ class TestMain:
 
     def test_preserves_existing_unrelated_keys(self, tmp_path: Path, monkeypatch):
         target = tmp_path / "settings.json"
-        target.write_text(json.dumps({
-            "theme": "dark",
-            "permissions": {"allow": ["preexisting"]},
-        }))
+        target.write_text(
+            json.dumps(
+                {
+                    "theme": "dark",
+                    "permissions": {"allow": ["preexisting"]},
+                }
+            )
+        )
         monkeypatch.setattr(
             "sys.argv",
             ["grant_permissions", "--settings", str(target), "--mode", "project"],

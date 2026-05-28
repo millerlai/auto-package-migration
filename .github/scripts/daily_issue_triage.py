@@ -4,6 +4,7 @@ Runs in GitHub Actions. Uses only stdlib + GITHUB_TOKEN (no extra deps).
 Output: appends one comment to the tracking issue labelled `meta:triage-digest`,
 creating the issue + label on first run.
 """
+
 from __future__ import annotations
 
 import json
@@ -81,7 +82,8 @@ def list_open_issues() -> list[dict]:
     """Open issues, excluding PRs and the tracking issue itself."""
     issues = gh("GET", f"/repos/{REPO}/issues?state=open&per_page=100")
     filtered = [
-        i for i in issues
+        i
+        for i in issues
         if "pull_request" not in i
         and not any(lbl["name"] == TRACKING_LABEL for lbl in i.get("labels", []))
     ]
@@ -90,11 +92,15 @@ def list_open_issues() -> list[dict]:
 
 def ensure_label() -> None:
     try:
-        gh("POST", f"/repos/{REPO}/labels", {
-            "name": TRACKING_LABEL,
-            "color": "ededed",
-            "description": "Daily triage digest tracking issue",
-        })
+        gh(
+            "POST",
+            f"/repos/{REPO}/labels",
+            {
+                "name": TRACKING_LABEL,
+                "color": "ededed",
+                "description": "Daily triage digest tracking issue",
+            },
+        )
     except error.HTTPError as e:
         if e.code != 422:  # 422 = label already exists
             raise
@@ -106,16 +112,20 @@ def find_or_create_tracking_issue() -> int:
     if issues:
         return issues[0]["number"]
     ensure_label()
-    created = gh("POST", f"/repos/{REPO}/issues", {
-        "title": "Daily Issue Triage Digest",
-        "body": (
-            "This issue is the rolling log for the `Daily Issue Triage` workflow.\n\n"
-            "Each scheduled run appends one comment ranking open issues by an "
-            "LLM-assigned priority. **PRs remain fully manual** — use this as a "
-            "decision aid, not an action."
-        ),
-        "labels": [TRACKING_LABEL],
-    })
+    created = gh(
+        "POST",
+        f"/repos/{REPO}/issues",
+        {
+            "title": "Daily Issue Triage Digest",
+            "body": (
+                "This issue is the rolling log for the `Daily Issue Triage` workflow.\n\n"
+                "Each scheduled run appends one comment ranking open issues by an "
+                "LLM-assigned priority. **PRs remain fully manual** — use this as a "
+                "decision aid, not an action."
+            ),
+            "labels": [TRACKING_LABEL],
+        },
+    )
     return created["number"]
 
 
@@ -125,9 +135,14 @@ def score_issue(issue: dict) -> dict:
         "model": MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_TEMPLATE.format(
-                number=issue["number"], title=issue["title"], body=body,
-            )},
+            {
+                "role": "user",
+                "content": USER_TEMPLATE.format(
+                    number=issue["number"],
+                    title=issue["title"],
+                    body=body,
+                ),
+            },
         ],
         "temperature": 0,
         "response_format": {"type": "json_object"},

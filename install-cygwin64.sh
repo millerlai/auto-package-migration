@@ -171,9 +171,9 @@ echo -e "${GREEN}✓ 檔案已複製${NC}"
 # 設定執行權限 (Windows 檔案系統會無視,但 Cygwin 掛載點上仍有效)
 echo ""
 echo -e "${BLUE}步驟 3/8: 設定執行權限${NC}"
-chmod +x "$TARGET_DIR"/scripts/*.sh 2>/dev/null || true
-chmod +x "$TARGET_DIR"/scripts/*.py 2>/dev/null || true
-chmod +x "$TARGET_DIR"/scripts/*.js 2>/dev/null || true
+# scripts/ 含 per-language 子目錄 (common/python/javascript/go),chmod 必須遞迴。
+find "$TARGET_DIR/scripts" \( -name '*.sh' -o -name '*.py' -o -name '*.js' \) \
+    -exec chmod +x {} + 2>/dev/null || true
 echo -e "${GREEN}✓ 執行權限已設定 (Windows 檔系統會忽略此屬性,屬正常現象)${NC}"
 
 # 檢查並安裝 Python 依賴
@@ -222,19 +222,19 @@ if ! command -v node >/dev/null 2>&1; then
     echo "  Python 套件升級不受影響。"
 elif ! command -v npm >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ 偵測到 node 但找不到 npm${NC}"
-    echo "  JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令"
+    echo "  JavaScript 支援會缺少 javascript/dep_tree.js 與 javascript/api_surface_diff.js 所需的 npm 命令"
 else
     NODE_VER=$(node --version 2>/dev/null || echo "unknown")
     echo "  node 版本: $NODE_VER"
-    if [ -f "$TARGET_DIR/scripts/package.json" ]; then
+    if [ -f "$TARGET_DIR/scripts/javascript/package.json" ]; then
         echo "  安裝 @babel/parser, @babel/traverse, ts-morph, semver..."
-        if (cd "$TARGET_DIR/scripts" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1); then
-            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/node_modules${NC}"
+        if (cd "$TARGET_DIR/scripts/javascript" && npm install --no-audit --no-fund --loglevel=error >/dev/null 2>&1); then
+            echo -e "${GREEN}✓ Node 依賴已安裝到 $TARGET_DIR/scripts/javascript/node_modules${NC}"
         else
-            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts && npm install${NC}"
+            echo -e "${YELLOW}⚠ npm install 失敗 — 可稍後手動執行: cd $TARGET_DIR/scripts/javascript && npm install${NC}"
         fi
     else
-        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/package.json,跳過 Node 依賴安裝${NC}"
+        echo -e "${YELLOW}⚠ 找不到 $TARGET_DIR/scripts/javascript/package.json,跳過 Node 依賴安裝${NC}"
     fi
 fi
 
@@ -480,5 +480,5 @@ fi
 
 echo ""
 echo "更多資訊請參考:"
-echo "  - INSTALLATION_GUIDE.md"
+echo "  - docs/installation.md"
 echo "  - package-upgrade/README.md"

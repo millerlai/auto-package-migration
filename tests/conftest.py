@@ -80,7 +80,5 @@ def js_deps_installed(scripts_dir: Path, node_bin: str) -> bool:
     that step was skipped.
     """
     if not (scripts_dir / "javascript" / "node_modules" / "@babel" / "parser").exists():
-        pytest.skip(
-            "JS helper deps not installed (run `npm install` in scripts/javascript/)"
-        )
+        pytest.skip("JS helper deps not installed (run `npm install` in scripts/javascript/)")
     return True

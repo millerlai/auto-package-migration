@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/common/jira_transition.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -32,6 +33,7 @@ def env_auth(monkeypatch):
 # _auth
 # --------------------------------------------------------------------------- #
 
+
 class TestAuth:
     def test_returns_pair_when_env_set(self, env_auth):
         assert jira_transition._auth() == ("me@x", "tok")
@@ -53,6 +55,7 @@ class TestAuth:
 # --------------------------------------------------------------------------- #
 # _check — status code → exception mapping
 # --------------------------------------------------------------------------- #
+
 
 class TestCheck:
     def test_401(self):
@@ -79,25 +82,26 @@ class TestCheck:
 # list_transitions
 # --------------------------------------------------------------------------- #
 
+
 class TestListTransitions:
     def test_returns_normalized_list(self, env_auth):
-        payload = {"transitions": [
-            {
-                "id": "11",
-                "name": "In Progress",
-                "to": {"name": "In Progress",
-                       "statusCategory": {"key": "indeterminate"}},
-                "hasScreen": False,
-            },
-            {
-                "id": "21",
-                "name": "Done",
-                "to": {"name": "Done", "statusCategory": {"key": "done"}},
-                "hasScreen": True,
-            },
-        ]}
-        with patch.object(jira_transition.requests, "get",
-                          return_value=_resp(200, payload)):
+        payload = {
+            "transitions": [
+                {
+                    "id": "11",
+                    "name": "In Progress",
+                    "to": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}},
+                    "hasScreen": False,
+                },
+                {
+                    "id": "21",
+                    "name": "Done",
+                    "to": {"name": "Done", "statusCategory": {"key": "done"}},
+                    "hasScreen": True,
+                },
+            ]
+        }
+        with patch.object(jira_transition.requests, "get", return_value=_resp(200, payload)):
             result = jira_transition.list_transitions("s.atlassian.net", "K-1")
         assert result["issue"] == "K-1"
         assert len(result["transitions"]) == 2
@@ -107,14 +111,14 @@ class TestListTransitions:
         assert result["transitions"][1]["has_screen"] is True
 
     def test_empty_transitions(self, env_auth):
-        with patch.object(jira_transition.requests, "get",
-                          return_value=_resp(200, {"transitions": []})):
+        with patch.object(
+            jira_transition.requests, "get", return_value=_resp(200, {"transitions": []})
+        ):
             result = jira_transition.list_transitions("s", "K-1")
         assert result["transitions"] == []
 
     def test_propagates_404(self, env_auth):
-        with patch.object(jira_transition.requests, "get",
-                          return_value=_resp(404)):
+        with patch.object(jira_transition.requests, "get", return_value=_resp(404)):
             with pytest.raises(RuntimeError, match="404"):
                 jira_transition.list_transitions("s", "K-1")
 
@@ -123,21 +127,18 @@ class TestListTransitions:
 # apply_transition
 # --------------------------------------------------------------------------- #
 
+
 class TestApplyTransition:
     def test_simple_apply_returns_status_applied(self, env_auth):
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(204)):
-            result = jira_transition.apply_transition(
-                "s.atlassian.net", "K-1", "11", None
-            )
+        with patch.object(jira_transition.requests, "post", return_value=_resp(204)):
+            result = jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
         assert result["status"] == "applied"
         assert result["transition_id"] == "11"
         assert result["resolution"] is None
         assert result["issue"] == "K-1"
 
     def test_apply_with_resolution(self, env_auth):
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(204)) as mock_post:
+        with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
             result = jira_transition.apply_transition("s", "K-1", "21", "Done")
             _, kwargs = mock_post.call_args
             payload = kwargs["json"]
@@ -146,8 +147,7 @@ class TestApplyTransition:
 
     def test_400_surfaces_workflow_error(self, env_auth):
         body = {"errors": {"resolution": "Field is required"}}
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(400, body)):
+        with patch.object(jira_transition.requests, "post", return_value=_resp(400, body)):
             with pytest.raises(RuntimeError) as exc:
                 jira_transition.apply_transition("s", "K-1", "11", None)
         assert "400" in str(exc.value)
@@ -162,21 +162,18 @@ class TestApplyTransition:
         assert "400" in str(exc.value)
 
     def test_401_raises_runtime_error(self, env_auth):
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(401)):
+        with patch.object(jira_transition.requests, "post", return_value=_resp(401)):
             with pytest.raises(RuntimeError, match="401"):
                 jira_transition.apply_transition("s", "K-1", "11", None)
 
     def test_uses_basic_auth(self, env_auth):
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(204)) as mock_post:
+        with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
             jira_transition.apply_transition("s", "K-1", "11", None)
             _, kwargs = mock_post.call_args
             assert kwargs["auth"] == ("me@x", "tok")
 
     def test_payload_shape_without_resolution(self, env_auth):
-        with patch.object(jira_transition.requests, "post",
-                          return_value=_resp(204)) as mock_post:
+        with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
             jira_transition.apply_transition("s", "K-1", "11", None)
             _, kwargs = mock_post.call_args
             assert kwargs["json"] == {"transition": {"id": "11"}}

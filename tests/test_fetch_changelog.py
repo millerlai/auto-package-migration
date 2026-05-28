@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/common/fetch_changelog.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -10,6 +11,7 @@ import fetch_changelog as fc
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+
 
 def _resp(status: int = 200, body: str = "", json_data=None) -> MagicMock:
     m = MagicMock()
@@ -28,11 +30,12 @@ def _resp(status: int = 200, body: str = "", json_data=None) -> MagicMock:
 # fetch_from_pypi
 # --------------------------------------------------------------------------- #
 
+
 class TestFetchFromPypi:
     def test_returns_content_when_pypi_has_changelog_url(self):
-        pypi_resp = _resp(200, json_data={
-            "info": {"project_urls": {"Changelog": "https://example.com/CHANGES"}}
-        })
+        pypi_resp = _resp(
+            200, json_data={"info": {"project_urls": {"Changelog": "https://example.com/CHANGES"}}}
+        )
         changelog_resp = _resp(200, body="# Changelog\n- v1: bug fix")
         with patch.object(fc.requests, "get", side_effect=[pypi_resp, changelog_resp]):
             result = fc.fetch_from_pypi("requests")
@@ -53,20 +56,22 @@ class TestFetchFromPypi:
             assert fc.fetch_from_pypi("nonexistent") is None
 
     def test_returns_none_on_network_error(self):
-        with patch.object(fc.requests, "get",
-                          side_effect=_requests.ConnectionError("dns")):
+        with patch.object(fc.requests, "get", side_effect=_requests.ConnectionError("dns")):
             assert fc.fetch_from_pypi("requests") is None
 
     def test_uses_first_matching_key(self):
         # `Changelog` should win over `Release Notes` because of catalogue order
-        pypi_resp = _resp(200, json_data={
-            "info": {
-                "project_urls": {
-                    "Changelog": "https://a.com/CHANGES",
-                    "Release Notes": "https://b.com/NOTES",
+        pypi_resp = _resp(
+            200,
+            json_data={
+                "info": {
+                    "project_urls": {
+                        "Changelog": "https://a.com/CHANGES",
+                        "Release Notes": "https://b.com/NOTES",
+                    }
                 }
-            }
-        })
+            },
+        )
         changelog_resp = _resp(200, body="A")
         with patch.object(fc.requests, "get", side_effect=[pypi_resp, changelog_resp]):
             result = fc.fetch_from_pypi("x")
@@ -74,9 +79,12 @@ class TestFetchFromPypi:
         assert result[1] == "https://a.com/CHANGES"
 
     def test_skips_unreachable_changelog_url(self):
-        pypi_resp = _resp(200, json_data={
-            "info": {"project_urls": {"Changelog": "https://broken.example.com/CHANGES"}}
-        })
+        pypi_resp = _resp(
+            200,
+            json_data={
+                "info": {"project_urls": {"Changelog": "https://broken.example.com/CHANGES"}}
+            },
+        )
         bad_changelog = _resp(500)
         with patch.object(fc.requests, "get", side_effect=[pypi_resp, bad_changelog]):
             assert fc.fetch_from_pypi("x") is None
@@ -85,6 +93,7 @@ class TestFetchFromPypi:
 # --------------------------------------------------------------------------- #
 # fetch_from_github_releases
 # --------------------------------------------------------------------------- #
+
 
 class TestFetchFromGithubReleases:
     def test_returns_formatted_releases(self):
@@ -115,10 +124,11 @@ class TestFetchFromGithubReleases:
             assert fc.fetch_from_github_releases("https://github.com/o/r") is None
 
     def test_parses_ssh_style_url(self):
-        with patch.object(fc.requests, "get",
-                          return_value=_resp(200, json_data=[
-                              {"tag_name": "v1", "name": "v1", "body": "x"}
-                          ])):
+        with patch.object(
+            fc.requests,
+            "get",
+            return_value=_resp(200, json_data=[{"tag_name": "v1", "name": "v1", "body": "x"}]),
+        ):
             result = fc.fetch_from_github_releases("git@github.com:owner/repo.git")
         assert result is not None
         assert "owner/repo" in result[1]
@@ -129,8 +139,7 @@ class TestFetchFromGithubReleases:
 
     def test_caps_at_50_releases(self):
         many = [{"tag_name": f"v{i}", "name": f"r{i}", "body": "b"} for i in range(100)]
-        with patch.object(fc.requests, "get",
-                          return_value=_resp(200, json_data=many)):
+        with patch.object(fc.requests, "get", return_value=_resp(200, json_data=many)):
             result = fc.fetch_from_github_releases("https://github.com/o/r")
         # Each release adds a header like "## r{i} (v{i})" — count them
         assert result is not None
@@ -144,11 +153,11 @@ class TestFetchFromGithubReleases:
 # fetch_from_common_files
 # --------------------------------------------------------------------------- #
 
+
 class TestFetchFromCommonFiles:
     def test_returns_first_matching_file(self):
         # First file/branch tried: CHANGELOG.md @ main → return 200
-        with patch.object(fc.requests, "get",
-                          return_value=_resp(200, body="# Changelog\n")):
+        with patch.object(fc.requests, "get", return_value=_resp(200, body="# Changelog\n")):
             result = fc.fetch_from_common_files("https://github.com/owner/repo")
         assert result is not None
         label, url, content = result
@@ -178,6 +187,7 @@ class TestFetchFromCommonFiles:
 # _resolve_tag
 # --------------------------------------------------------------------------- #
 
+
 class TestResolveTag:
     def test_resolves_v_prefix_first(self):
         # `v1.2.3` succeeds on first try
@@ -187,8 +197,7 @@ class TestResolveTag:
 
     def test_falls_back_to_plain_version(self):
         # v1.2.3 fails, 1.2.3 succeeds
-        with patch.object(fc.requests, "get",
-                          side_effect=[_resp(404), _resp(200)]):
+        with patch.object(fc.requests, "get", side_effect=[_resp(404), _resp(200)]):
             tag = fc._resolve_tag("o", "r", "1.2.3")
         assert tag == "1.2.3"
 
@@ -197,8 +206,7 @@ class TestResolveTag:
             assert fc._resolve_tag("o", "r", "1.2.3") is None
 
     def test_swallows_request_exception(self):
-        with patch.object(fc.requests, "get",
-                          side_effect=_requests.ConnectionError("dns")):
+        with patch.object(fc.requests, "get", side_effect=_requests.ConnectionError("dns")):
             assert fc._resolve_tag("o", "r", "1.2.3") is None
 
 
@@ -206,23 +214,27 @@ class TestResolveTag:
 # fetch_from_github_compare
 # --------------------------------------------------------------------------- #
 
+
 class TestFetchFromGithubCompare:
     def test_returns_commit_list(self):
         # _resolve_tag: 2 calls (one per version), each succeeds on first try
         tag_resp = _resp(200)
-        compare = _resp(200, json_data={
-            "commits": [
-                {"sha": "abc123def456", "commit": {
-                    "message": "fix: thing\n\nmore detail",
-                    "author": {"name": "Alice"},
-                }}
-            ]
-        })
-        with patch.object(fc.requests, "get",
-                          side_effect=[tag_resp, tag_resp, compare]):
-            result = fc.fetch_from_github_compare(
-                "https://github.com/o/r", "1.0.0", "1.1.0"
-            )
+        compare = _resp(
+            200,
+            json_data={
+                "commits": [
+                    {
+                        "sha": "abc123def456",
+                        "commit": {
+                            "message": "fix: thing\n\nmore detail",
+                            "author": {"name": "Alice"},
+                        },
+                    }
+                ]
+            },
+        )
+        with patch.object(fc.requests, "get", side_effect=[tag_resp, tag_resp, compare]):
+            result = fc.fetch_from_github_compare("https://github.com/o/r", "1.0.0", "1.1.0")
         assert result is not None
         label, url, content = result
         assert label == "GitHub Compare API"
@@ -235,9 +247,7 @@ class TestFetchFromGithubCompare:
 
     def test_returns_none_when_tag_cant_resolve(self):
         with patch.object(fc.requests, "get", return_value=_resp(404)):
-            result = fc.fetch_from_github_compare(
-                "https://github.com/o/r", "1.0", "1.1"
-            )
+            result = fc.fetch_from_github_compare("https://github.com/o/r", "1.0", "1.1")
         assert result is None
 
     def test_returns_none_for_non_github(self):
@@ -247,9 +257,7 @@ class TestFetchFromGithubCompare:
         tag = _resp(200)
         compare = _resp(200, json_data={"commits": []})
         with patch.object(fc.requests, "get", side_effect=[tag, tag, compare]):
-            result = fc.fetch_from_github_compare(
-                "https://github.com/o/r", "1.0", "1.1"
-            )
+            result = fc.fetch_from_github_compare("https://github.com/o/r", "1.0", "1.1")
         assert result is None
 
 
@@ -257,19 +265,17 @@ class TestFetchFromGithubCompare:
 # fetch_from_github_tag_annotation
 # --------------------------------------------------------------------------- #
 
+
 class TestFetchFromGithubTagAnnotation:
     def test_returns_annotation_message(self):
         # 1) resolve tag (200), 2) ref lookup → object{type=tag,url=...}, 3) tag obj fetch
         resolve = _resp(200)
-        ref = _resp(200, json_data={"object": {
-            "type": "tag", "url": "https://api.github.com/tag-obj"
-        }})
+        ref = _resp(
+            200, json_data={"object": {"type": "tag", "url": "https://api.github.com/tag-obj"}}
+        )
         tag_obj = _resp(200, json_data={"message": "Release notes for v1\n"})
-        with patch.object(fc.requests, "get",
-                          side_effect=[resolve, ref, tag_obj]):
-            result = fc.fetch_from_github_tag_annotation(
-                "https://github.com/o/r", "1.0.0"
-            )
+        with patch.object(fc.requests, "get", side_effect=[resolve, ref, tag_obj]):
+            result = fc.fetch_from_github_tag_annotation("https://github.com/o/r", "1.0.0")
         assert result is not None
         label, url, content = result
         assert label == "GitHub tag annotation"
@@ -280,12 +286,8 @@ class TestFetchFromGithubTagAnnotation:
         resolve = _resp(200)
         ref = _resp(200, json_data={"object": {"type": "commit"}})
         with patch.object(fc.requests, "get", side_effect=[resolve, ref]):
-            assert fc.fetch_from_github_tag_annotation(
-                "https://github.com/o/r", "1.0"
-            ) is None
+            assert fc.fetch_from_github_tag_annotation("https://github.com/o/r", "1.0") is None
 
     def test_returns_none_when_tag_cant_resolve(self):
         with patch.object(fc.requests, "get", return_value=_resp(404)):
-            assert fc.fetch_from_github_tag_annotation(
-                "https://github.com/o/r", "1.0"
-            ) is None
+            assert fc.fetch_from_github_tag_annotation("https://github.com/o/r", "1.0") is None

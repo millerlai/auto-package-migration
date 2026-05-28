@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/common/jira_fetch.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -22,6 +23,7 @@ def _resp(status: int = 200, json_data=None) -> MagicMock:
 # adf_to_text
 # --------------------------------------------------------------------------- #
 
+
 class TestAdfToText:
     def test_text_node(self):
         assert jira_fetch.adf_to_text({"type": "text", "text": "hello"}) == "hello"
@@ -41,10 +43,8 @@ class TestAdfToText:
         doc = {
             "type": "bulletList",
             "content": [
-                {"type": "listItem", "content": [
-                    {"type": "text", "text": "a"}]},
-                {"type": "listItem", "content": [
-                    {"type": "text", "text": "b"}]},
+                {"type": "listItem", "content": [{"type": "text", "text": "a"}]},
+                {"type": "listItem", "content": [{"type": "text", "text": "b"}]},
             ],
         }
         out = jira_fetch.adf_to_text(doc)
@@ -54,10 +54,8 @@ class TestAdfToText:
         doc = {
             "type": "doc",
             "content": [
-                {"type": "paragraph", "content": [
-                    {"type": "text", "text": "p1"}]},
-                {"type": "paragraph", "content": [
-                    {"type": "text", "text": "p2"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "p1"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "p2"}]},
             ],
         }
         out = jira_fetch.adf_to_text(doc)
@@ -84,6 +82,7 @@ class TestAdfToText:
 # --------------------------------------------------------------------------- #
 # normalize
 # --------------------------------------------------------------------------- #
+
 
 class TestNormalize:
     def test_extracts_basic_fields(self):
@@ -117,9 +116,9 @@ class TestNormalize:
                 "summary": "s",
                 "description": {
                     "type": "doc",
-                    "content": [{"type": "paragraph", "content": [
-                        {"type": "text", "text": "ADF body"}
-                    ]}],
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "ADF body"}]}
+                    ],
                 },
             },
         }
@@ -147,11 +146,15 @@ class TestNormalize:
                         {
                             "author": {"displayName": "Alice"},
                             "created": "2024-01-01",
-                            "body": {"type": "doc", "content": [
-                                {"type": "paragraph", "content": [
-                                    {"type": "text", "text": "Looks good"}
-                                ]}
-                            ]},
+                            "body": {
+                                "type": "doc",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "Looks good"}],
+                                    }
+                                ],
+                            },
                         },
                         {
                             "author": {"displayName": "Bob"},
@@ -170,8 +173,7 @@ class TestNormalize:
         assert result["comments"][1]["body"] == "Plain text comment"
 
     def test_missing_fields_default_to_empty(self):
-        raw = {"key": "X", "self": "https://s.atlassian.net/rest/api/3/issue/X",
-               "fields": {}}
+        raw = {"key": "X", "self": "https://s.atlassian.net/rest/api/3/issue/X", "fields": {}}
         result = jira_fetch.normalize(raw)
         assert result["summary"] == ""
         assert result["status"] == ""
@@ -182,10 +184,9 @@ class TestNormalize:
 
     def test_anonymous_comment_author(self):
         raw = {
-            "key": "X", "self": "https://s.atlassian.net/rest/api/3/issue/X",
-            "fields": {"summary": "s", "comment": {"comments": [
-                {"author": None, "body": "x"}
-            ]}},
+            "key": "X",
+            "self": "https://s.atlassian.net/rest/api/3/issue/X",
+            "fields": {"summary": "s", "comment": {"comments": [{"author": None, "body": "x"}]}},
         }
         result = jira_fetch.normalize(raw)
         assert result["comments"][0]["author"] == "unknown"
@@ -199,6 +200,7 @@ class TestNormalize:
 # --------------------------------------------------------------------------- #
 # fetch_issue — mock requests
 # --------------------------------------------------------------------------- #
+
 
 class TestFetchIssue:
     def test_returns_json_on_200(self):
@@ -228,8 +230,7 @@ class TestFetchIssue:
                 jira_fetch.fetch_issue("s", "K-1", "e", "t")
 
     def test_uses_basic_auth(self):
-        with patch.object(jira_fetch.requests, "get",
-                          return_value=_resp(200, {})) as mock_get:
+        with patch.object(jira_fetch.requests, "get", return_value=_resp(200, {})) as mock_get:
             jira_fetch.fetch_issue("s.atlassian.net", "K-1", "me@x", "tok")
             _, kwargs = mock_get.call_args
             assert kwargs["auth"] == ("me@x", "tok")

@@ -176,22 +176,22 @@ if errorlevel 1 (
     where npm >nul 2>nul
     if errorlevel 1 (
         echo %YELLOW%⚠ 偵測到 node 但找不到 npm%NC%
-        echo   JavaScript 支援會缺少 dep_tree_js.js 與 api_surface_diff_js.js 所需的 npm 命令
+        echo   JavaScript 支援會缺少 javascript\dep_tree.js 與 javascript\api_surface_diff.js 所需的 npm 命令
     ) else (
         for /f "delims=" %%v in ('node --version 2^>nul') do set "NODE_VER=%%v"
         echo   node 版本: !NODE_VER!
-        if exist "!TARGET_DIR!\scripts\package.json" (
+        if exist "!TARGET_DIR!\scripts\javascript\package.json" (
             echo   安裝 @babel/parser, @babel/traverse, ts-morph, semver...
-            pushd "!TARGET_DIR!\scripts" >nul
+            pushd "!TARGET_DIR!\scripts\javascript" >nul
             call npm install --no-audit --no-fund --loglevel=error >nul 2>&1
             if errorlevel 1 (
-                echo %YELLOW%⚠ npm install 失敗 — 可稍後手動執行: cd "!TARGET_DIR!\scripts" ^&^& npm install%NC%
+                echo %YELLOW%⚠ npm install 失敗 — 可稍後手動執行: cd "!TARGET_DIR!\scripts\javascript" ^&^& npm install%NC%
             ) else (
-                echo %GREEN%✓ Node 依賴已安裝到 !TARGET_DIR!\scripts\node_modules%NC%
+                echo %GREEN%✓ Node 依賴已安裝到 !TARGET_DIR!\scripts\javascript\node_modules%NC%
             )
             popd >nul
         ) else (
-            echo %YELLOW%⚠ 找不到 !TARGET_DIR!\scripts\package.json,跳過 Node 依賴安裝%NC%
+            echo %YELLOW%⚠ 找不到 !TARGET_DIR!\scripts\javascript\package.json,跳過 Node 依賴安裝%NC%
         )
     )
 )
@@ -406,7 +406,7 @@ if /i "!TOOLS_MISSING_FLAG!"=="true" (
 
 echo.
 echo 更多資訊請參考:
-echo   - INSTALLATION_GUIDE.md
+echo   - docs\installation.md
 echo   - package-upgrade\README.md
 echo.
 

@@ -1,4 +1,5 @@
 """Tests for package-upgrade/scripts/common/jira_comment.py."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -21,6 +22,7 @@ def _resp(status: int = 200, json_data=None) -> MagicMock:
 # --------------------------------------------------------------------------- #
 # markdown_to_adf
 # --------------------------------------------------------------------------- #
+
 
 class TestMarkdownToAdf:
     def test_single_paragraph(self):
@@ -64,6 +66,7 @@ class TestMarkdownToAdf:
 # post_comment — mock requests
 # --------------------------------------------------------------------------- #
 
+
 class TestPostComment:
     def test_returns_normalized_dict_on_success(self):
         payload = {
@@ -71,11 +74,8 @@ class TestPostComment:
             "created": "2024-01-01",
             "author": {"displayName": "Alice"},
         }
-        with patch.object(jira_comment.requests, "post",
-                          return_value=_resp(201, payload)):
-            result = jira_comment.post_comment(
-                "s.atlassian.net", "K-1", "hello", "e@x", "tok"
-            )
+        with patch.object(jira_comment.requests, "post", return_value=_resp(201, payload)):
+            result = jira_comment.post_comment("s.atlassian.net", "K-1", "hello", "e@x", "tok")
         assert result["id"] == "12345"
         assert result["created"] == "2024-01-01"
         assert result["author"] == "Alice"
@@ -97,8 +97,9 @@ class TestPostComment:
                 jira_comment.post_comment("s", "K-1", "x", "e", "t")
 
     def test_sends_adf_body(self):
-        with patch.object(jira_comment.requests, "post",
-                          return_value=_resp(201, {"id": "1"})) as mock_post:
+        with patch.object(
+            jira_comment.requests, "post", return_value=_resp(201, {"id": "1"})
+        ) as mock_post:
             jira_comment.post_comment("s", "K", "hello world", "e", "t")
             _, kwargs = mock_post.call_args
             payload = kwargs["json"]
@@ -107,15 +108,17 @@ class TestPostComment:
             assert payload["body"]["content"][0]["content"][0]["text"] == "hello world"
 
     def test_uses_basic_auth(self):
-        with patch.object(jira_comment.requests, "post",
-                          return_value=_resp(201, {"id": "1"})) as mock_post:
+        with patch.object(
+            jira_comment.requests, "post", return_value=_resp(201, {"id": "1"})
+        ) as mock_post:
             jira_comment.post_comment("s", "K", "x", "alice@x", "tok")
             _, kwargs = mock_post.call_args
             assert kwargs["auth"] == ("alice@x", "tok")
 
     def test_anonymous_author_handled(self):
         # author missing → result["author"] is None (gracefully)
-        with patch.object(jira_comment.requests, "post",
-                          return_value=_resp(201, {"id": "1", "author": None})):
+        with patch.object(
+            jira_comment.requests, "post", return_value=_resp(201, {"id": "1", "author": None})
+        ):
             result = jira_comment.post_comment("s", "K", "x", "e", "t")
         assert result["author"] is None

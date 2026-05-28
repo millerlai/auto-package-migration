@@ -45,10 +45,12 @@ def markdown_to_adf(md: str) -> dict:
     content = []
     for block in blocks:
         text = block.replace("\r\n", "\n")
-        content.append({
-            "type": "paragraph",
-            "content": [{"type": "text", "text": text}],
-        })
+        content.append(
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": text}],
+            }
+        )
     if not content:
         content = [{"type": "paragraph", "content": [{"type": "text", "text": md or " "}]}]
     return {"version": 1, "type": "doc", "content": content}
