@@ -12,6 +12,9 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   # Line-ending guard. The cygwin job below can't catch CRLF: it sets
   # core.autocrlf=false before checkout and runs bash with -o igncr, so .sh
