@@ -90,7 +90,7 @@ uv sync
 uv run python package-upgrade/scripts/python/dep_tree.py . requests
 uv run python package-upgrade/scripts/python/ast_scanner.py . requests
 
-# Format / lint / type-check (settings in pyproject.toml: black line-length=100, ruff target=py38)
+# Format / lint / type-check (settings in pyproject.toml: black line-length=100, ruff target=py310)
 uv run black package-upgrade/scripts/
 uv run ruff check package-upgrade/scripts/
 uv run ruff check --fix package-upgrade/scripts/
@@ -164,7 +164,7 @@ Phase 0 of `SKILL.md` picks the language (detection order: **Go > JS > Python**)
 
 ## Conventions for scripts
 
-- **Python**: `#!/usr/bin/env python3` shebang, type hints, JSON to stdout / errors to stderr, black + ruff clean, target Python 3.8.
+- **Python**: `#!/usr/bin/env python3` shebang, type hints, JSON to stdout / errors to stderr, black + ruff clean, target Python 3.10.
 - **Bash**: `#!/usr/bin/env bash` + `set -euo pipefail`, errors to stderr (`>&2`), use `jq` for JSON.
 - **JS**: helpers live in `package-upgrade/scripts/javascript/`, deps declared in the inner `package.json`.
 - **All**: chmod +x after creation — `install.sh` does this on install but local `uv run` and `bash` need it during development.
