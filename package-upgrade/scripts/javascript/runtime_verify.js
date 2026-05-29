@@ -244,7 +244,7 @@ function httpProbe(url, timeoutMs = 15000) {
     return new Promise(resolve => {
         const parsed = new URL(url);
         const lib = parsed.protocol === 'https:' ? https : http;
-        const req = lib.get(url, { timeout: timeoutMs, rejectUnauthorized: false }, res => {
+        const req = lib.get(url, { timeout: timeoutMs }, res => {
             let size = 0;
             res.on('data', chunk => { size += chunk.length; });
             res.on('end', () => resolve({ status: res.statusCode, size, error: '' }));
