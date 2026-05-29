@@ -233,7 +233,8 @@ echo ""
 echo "4. 檢查 Scripts..."
 check_scripts common \
     fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh \
-    jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py
+    jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py \
+    verify_provenance.sh provenance_stop_hook.py
 check_scripts python \
     detect_env.sh dep_tree.py ast_scanner.py run_tests.sh snapshot_env.sh \
     preflight.sh validate_lockfile.sh api_surface_diff.sh pip_audit.sh

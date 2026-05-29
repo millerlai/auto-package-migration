@@ -125,6 +125,39 @@ SCRIPT_ALLOW_BY_MODE = {
     ],
 }
 
+# Stop hook that enforces the Phase 3 provenance gate (deterministic, runs
+# outside the prompt). Idempotent: identified by this marker substring so a
+# re-install never adds a duplicate.
+HOOK_MARKER = "provenance_stop_hook.py"
+HOOK_SCRIPT_BY_MODE = {
+    "global": "~/.claude/skills/package-upgrade/scripts/common/provenance_stop_hook.py",
+    "project": ".claude/skills/package-upgrade/scripts/common/provenance_stop_hook.py",
+}
+
+
+def build_stop_hook(mode: str) -> dict:
+    """Build the settings.json Stop-hook group for the given install mode."""
+    path = Path(HOOK_SCRIPT_BY_MODE[mode]).expanduser()
+    # project mode stays relative (hooks run from the project root); global
+    # mode resolves ~ so the absolute path is stable regardless of cwd.
+    path_str = str(path) if mode == "global" else HOOK_SCRIPT_BY_MODE[mode]
+    return {
+        "matcher": "",
+        "hooks": [{"type": "command", "command": f'python3 "{path_str}"'}],
+    }
+
+
+def merge_stop_hook(settings: dict, mode: str) -> bool:
+    """Add the provenance Stop hook if absent. Returns True if it was added."""
+    hooks = settings.setdefault("hooks", {})
+    stop_groups = hooks.setdefault("Stop", [])
+    for group in stop_groups:
+        for entry in group.get("hooks", []):
+            if HOOK_MARKER in entry.get("command", ""):
+                return False
+    stop_groups.append(build_stop_hook(mode))
+    return True
+
 
 def resolve_gh_entries(spec: str) -> list[str]:
     """Resolve --gh-entries spec to a list of permission strings.
@@ -187,6 +220,11 @@ def main() -> int:
         f"({','.join(GH_ALLOW)})",
     )
     parser.add_argument(
+        "--no-hooks",
+        action="store_true",
+        help="Skip installing the Phase 3 provenance Stop hook",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Print what would change without writing"
     )
     args = parser.parse_args()
@@ -201,6 +239,7 @@ def main() -> int:
     desired_allow, desired_ask = desired_entries(args.mode, args.gh_entries)
     _, added_allow = merge(allow_list, desired_allow)
     _, added_ask = merge(ask_list, desired_ask)
+    hook_added = False if args.no_hooks else merge_stop_hook(settings, args.mode)
 
     gh_values = set(GH_ALLOW.values())
     print(f"Target:      {settings_path}")
@@ -208,6 +247,8 @@ def main() -> int:
     print(f"gh entries:  {args.gh_entries}")
     print(f"Allow:       +{len(added_allow)} new (total {len(allow_list)})")
     print(f"Ask:         +{len(added_ask)} new (total {len(ask_list)})")
+    if not args.no_hooks:
+        print(f"Stop hook:   {'+1 (provenance gate)' if hook_added else 'already present'}")
 
     if added_allow:
         print("\nNewly allowed:")
@@ -218,7 +259,7 @@ def main() -> int:
         print("\nNewly gated (will prompt):")
         for item in added_ask:
             print(f"  + {item}")
-    if not added_allow and not added_ask:
+    if not added_allow and not added_ask and not hook_added:
         print("\nNothing to add — settings already contain every recommended entry.")
         return 0
 
