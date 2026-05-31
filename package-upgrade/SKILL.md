@@ -105,7 +105,7 @@ bash scripts/python/detect_env.sh <project_path>
 
 接著一律讀:
 - `references/python/breaking_change_patterns.md` — Python 慣例（`@deprecated` / `__getattr__` / async/sync / C ext ABI 等）
-- `references/python/override_semantics.md` — Phase 2 `bump_override` 策略選擇參考
+- `references/python/override_semantics.md` — Phase 2 `pin_add` / `pin_update` / `pin_source` 策略選擇參考
 - 偵測為 web app / CLI / scientific stack 時 → `references/python/runtime_verification.md`
 
 **若 `language == "javascript"`**，執行：
@@ -750,7 +750,25 @@ python scripts/python/dep_tree.py <project_path> <package_name> \
 `--target-version` 與 `--no-probe` 為選用。提供 `--target-version` 時，腳本會對
 每個 direct parent 呼叫 PyPI JSON API 取 `info.requires_dist`，分類為
 `satisfies` / `would_not_help_pin` / `no_dep` / `unknown`，並把每條候選策略
-（`direct_bump` / `lock_only` / `bump_parent` per parent / `bump_parent_then_target`）
+（`direct_bump` / `lock_only` / `bump_parent` per parent / `pin_add` / `pin_update` / `pin_source`）
+
+#### Canonical type ↔ mechanism ↔ 情境 對照表（單一真實來源）
+
+三語言 `dep_tree*` 產出的 `upgrade_strategies[]` 共用以下 canonical `type`，並以
+`mechanism` 欄位承載語言差異（A = direct parent, B = target）。此表是 Phase 2 ↔
+script 輸出的單一對照來源：
+
+| canonical type | 情境 | Python mechanism | JS mechanism | Go mechanism |
+|----------------|------|------------------|--------------|--------------|
+| `direct_bump` | B 是 direct dep | `poetry-dep` | `npm-overrides` 等 | `go-get` |
+| `lock_only` | B 在 A 約束內，只刷 lock（**requires_consent**：直接動 lock，後續 A 升級時 lock pin 可能被靜默 hold back） | `uv-constraint` | `npm-overrides` 等 | — |
+| `bump_parent` | A 有新版且接受新 B（status=satisfies） | `poetry-dep` | `npm-overrides` 等 | `go-get` |
+| `pin_add` | manifest 無既有強制 pin → 新增一條版本 pin（**requires_consent**） | `uv-override` | `npm-overrides`/`yarn-resolutions`/`pnpm-overrides`/`bun-overrides` | `go-replace` |
+| `pin_update` | manifest 已有強制 pin → 改它的版本 | `uv-override` 等 | 同上（既有 override kind） | `go-replace` |
+| `pin_source` | 換來源（fork/git），非換版本（**requires_consent**；JS 不 emit） | `uv-source` | — | `go-replace` |
+| `bump_indirect` | Go 輕量：直接升 indirect entry | — | — | `go-indirect` |
+| `major_version_rewrite` | Go v1→v2+ import path rewrite | — | — | `go-get` |
+
 依 confidence 排序輸出在 `upgrade_strategies[]`，第一名同步寫到
 `recommended_strategy`。未提供 target_version 時 parent_analyses 為空，策略 fallback
 為僅依 `dependency_type` 判斷。schema 對齊 `dep_tree_go.py` 的 `parent_analyses` /
@@ -778,9 +796,9 @@ parent 是否真的能拉到目標版本，輸出在 `parent_analyses[]`（schem
 - `unknown` — 無法 probe（離線 / 私有 registry / 未提供 target version）
 
 當**所有** parent 都是 `would_not_help_pin` / `no_dep` 時，`recommend_strategy` 會自動
-把 `add_override` 升權排在 `bump_parent` 之前（代表「parent 無法升級到能解決的版本」）。
+把 `pin_add` 升權排在 `bump_parent` 之前（代表「parent 無法升級到能解決的版本」）。
 未提供 `--target-version` 或加了 `--no-probe` 時 `parent_analyses` 為空，策略 fallback
-為僅依 chain 結構排序（`bump_parent` 仍排在 `add_override` 前）。
+為僅依 chain 結構排序（`bump_parent` 仍排在 `pin_add` 前）。
 
 **若 `language == "go"`**：
 
@@ -849,7 +867,7 @@ JS 額外輸出（供 Phase 2.0 與 Phase 5 使用）：
 >   只在 package.json 完全沒有 target 的任何約束時才允許。
 > - **Go**: `go.mod` 同時是 manifest，沒有 lock-only 概念。優先 `bump_parent`
 >   （讓 parent 拉新版），其次 `bump_indirect`（直接 bump indirect entry，
->   Go MVS 會接受），`add_replace` 是 last resort。
+>   Go MVS 會接受），`pin_add` / `pin_source`（replace）是 last resort。
 
 ##### B (JS) — JavaScript 決策樹
 
@@ -859,7 +877,7 @@ JS 額外輸出（供 Phase 2.0 與 Phase 5 使用）：
 **B/JS-1. `direct_bump`** — 不會走到 Type B（target 在 dependencies/devDeps/peerDeps，
 直接走 Type A 流程）。出現在這裡只是 schema 完整性。
 
-**B/JS-2. `bump_override`** — target 已被 `overrides` (npm) / `resolutions` (yarn) /
+**B/JS-2. `pin_update`** — target 已被 `overrides` (npm) / `resolutions` (yarn) /
 `pnpm.overrides` 釘版。把 override 值改成 target 新版本，跑 install 讓 lock 跟著走。
 不去動 parent，因為使用者顯式表達過「鎖死 target 不管 parent 如何」。
 
@@ -896,15 +914,15 @@ Parent chain: {target} ← ... ← {direct_parent}
 繼續嗎?
 [Y] 是, 把 {direct_parent} 當成新目標跑 Phase 2~6
 [O] 升其他 parent (顯示完整 candidate 列表)
-[A] 改用 add_override (詳見 B/JS-4)
+[A] 改用 pin_add (詳見 B/JS-4)
 [N] 取消
 ```
 
 若 **所有 parent 都是 `would_not_help_pin` / `no_dep`**（probe 已證實升任何 parent
 都拉不到目標版本）→ **不要硬推 bump_parent**；此時 `dep_tree.js` 已自動把
-`add_override` 升權為推薦策略，直接走 B/JS-4 的 consent gate。
+`pin_add` 升權為推薦策略，直接走 B/JS-4 的 consent gate。
 
-**B/JS-4. `add_override`** — 走到這條代表 **target 是 transitive、package.json 沒有
+**B/JS-4. `pin_add`** — 走到這條代表 **target 是 transitive、package.json 沒有
 直接約束，且升 parent 無法解決**（`parent_analyses` 全為 `would_not_help_pin` /
 `no_dep`，或無 parent 可達）。**這是強制 consent gate — 必須先向使用者說明「A 無法
 升級到能解決的版本」並取得明確 `[Y]` 同意，才能寫入 override 並進入 Phase 5**。
@@ -934,12 +952,12 @@ Parent chain: {target} ← ... ← {direct_parent}
 缺點: 繞過 parent 的相容性測試，需要在 Phase 6 跑足測試確認 parent 在新版
 {package} 下仍正常；且 parent 日後正式升上來後要記得移除此 override。
 
-是否同意以 add_override 進行?
+是否同意以 pin_add 進行?
 [Y] 是, 我了解 A 無法升級, 同意加 override 並進入 Phase 5
 [N] 否, 取消 (不修改任何檔案)
 ```
 
-收到 `[Y]` → 標記 `upgrade_strategy = add_override`，於 Phase 5.3 寫 override 並在
+收到 `[Y]` → 標記 `upgrade_strategy = pin_add`，於 Phase 5.3 寫 override 並在
 commit message 註記預期移除條件（parent 升上來後拿掉）。收到 `[N]` / 其他 → 中止。
 
 **B/JS-5. `lock_only`** — **真正的 last resort**。只在以下都成立時才允許：
@@ -977,7 +995,7 @@ session 中標記 `upgrade_strategy = <chosen strategy>`，Phase 5.3 走對應�
   `not_needed_by_main_module` / `not_in_module_graph` / `unknown`。
   當值為 `not_needed_by_main_module` 時,target 不在 build path 上,
   `go mod tidy` 會把 `bump_indirect`/`bump_parent` 的結果**沖掉** —
-  此時 `add_replace` 自動升權為推薦策略。
+  此時 `pin_add`（新增 replace）自動升權為推薦策略。
 - `parent_analyses[]`: 對每個 direct parent 都下載過它 latest 版本的
   `.mod` 並解析。每個 entry 含 `status`:
   - `satisfies` — parent@latest 已 require target 到符合版本 → bump_parent 有效
@@ -989,7 +1007,7 @@ session 中標記 `upgrade_strategy = <chosen strategy>`，Phase 5.3 走對應�
   策略卡片會把 `status` / `reason` 直接帶出來,**呈現給使用者時要原樣展示**
   (不要省略 reason — 它說明了為什麼某個 bump_parent 候選被降權)。
 
-當 `add_replace` 因上述訊號升權成為推薦時,確認對話必須引用
+當 `pin_add`（replace）因上述訊號升權成為推薦時,確認對話必須引用
 `references/go/replace_semantics.md` 解釋原因,讓使用者知道這不是 last resort
 而是當下唯一可行解。
 
@@ -1038,19 +1056,19 @@ Parent chain: {target} ← ... ← {direct_parent}
 繼續嗎?
 [Y] 是, 把 {direct_parent} 當新目標跑 Phase 2~6
 [B] 改用 bump_indirect (直接動 indirect entry)
-[R] 改用 add_replace (若所有 parent 都 would_not_help, 這通常是真正的解)
+[R] 改用 pin_add / pin_source (replace; 若所有 parent 都 would_not_help, 這通常是真正的解)
 [N] 取消
 ```
 
 若**所有 parent 都是 `would_not_help_*`** → 不要硬推 bump_parent;
-直接告訴使用者並建議走 `add_replace`,引用 `references/go/replace_semantics.md`。
+直接告訴使用者並建議走 `pin_add` / `pin_source`（replace）,引用 `references/go/replace_semantics.md`。
 
 **B/Go-4. `bump_indirect`** — target 是 indirect，直接 bump indirect entry。
 這是 Go 的「lock-only」等價物（雖然 `go.mod` 會改）。CVE patch 流程常用。
 
 ⚠️ **重要**: 當 `go_mod_why_status == "not_needed_by_main_module"` 時,
 `go mod tidy` 會把這條 indirect entry **沖掉**,bump_indirect 等於白做。
-此時 `dep_tree_go.sh` 已自動降權 bump_indirect 並升權 add_replace —
+此時 `dep_tree_go.sh` 已自動降權 bump_indirect 並升權 pin_add（replace）—
 **不要硬推 bump_indirect**,改走 B/Go-5。詳見 `references/go/replace_semantics.md`。
 
 ```
@@ -1063,16 +1081,16 @@ Go MVS 會接受這個更高版本。不影響 direct deps 的宣告.
 ⚠️ 警告 (若 dep_tree_go.sh 標 status: would_not_help):
   go mod why -m {package} 回傳 "not needed by main module" —
   下一次 `go mod tidy` 會刪掉這條 indirect entry,升級會被沖掉。
-  此情境建議走 add_replace (B/Go-5)。
+  此情境建議走 pin_add / pin_source (B/Go-5)。
 
 繼續嗎?
 [Y] 是, bump indirect entry
 [P] 改用 bump_parent (我會把 parent 當新目標)
-[R] 改用 add_replace (推薦, 若上述警告出現)
+[R] 改用 pin_add / pin_source (replace; 推薦, 若上述警告出現)
 [N] 取消
 ```
 
-**B/Go-5. `add_replace`** — last resort，緊急 CVE patch / 上游不修 / 指向 fork 時用。
+**B/Go-5. `pin_add` / `pin_update` / `pin_source`（replace, mechanism=`go-replace`）** — last resort，緊急 CVE patch / 上游不修 / 指向 fork 時用。無既有 replace→`pin_add`；改既有 replace 版本→`pin_update`；指向 fork/不同 path→`pin_source`。
 
 ```
 ⚠️ 即將新增 replace directive 到 go.mod:
@@ -1680,9 +1698,9 @@ bash scripts/go/snapshot_env.sh <project_path> save
 | `upgrade_strategy` | 走哪條 | 指令樣板 (npm / yarn / pnpm) |
 |---|---|---|
 | `direct_bump` | 「Direct: 同時更新宣告檔 + lock」 | `npm install <pkg>@<ver>` / `$PKG_MANAGER_BIN up <pkg>@<ver>` / `$PKG_MANAGER_BIN add <pkg>@<ver>` |
-| `bump_override` | 編輯 `package.json#overrides`/`resolutions`/`pnpm.overrides` 後重 install | `npm install --package-lock-only` / `$PKG_MANAGER_BIN install --mode update-lockfile` / `$PKG_MANAGER_BIN install --lockfile-only` |
+| `pin_update` | 編輯既有 `package.json#overrides`/`resolutions`/`pnpm.overrides` 後重 install | `npm install --package-lock-only` / `$PKG_MANAGER_BIN install --mode update-lockfile` / `$PKG_MANAGER_BIN install --lockfile-only` |
 | `bump_parent` | 把 direct parent 當新目標跑 direct_bump | `npm install <parent>@<latest>` / `$PKG_MANAGER_BIN up <parent>` / `$PKG_MANAGER_BIN add <parent>@<latest>` |
-| `add_override` | 編輯 `package.json` 新增 `overrides`/`resolutions`/`pnpm.overrides` 後重 install | 同 `bump_override` |
+| `pin_add` | 編輯 `package.json` 新增 `overrides`/`resolutions`/`pnpm.overrides` 後重 install | 同 `pin_update` |
 | `lock_only` | 「Transitive: lock-only 路徑」(yarn 用 `set resolution`，npm/pnpm 用 `update`) | `$PKG_MANAGER_BIN set resolution ...` / `npm update <pkg>` / `$PKG_MANAGER_BIN update <pkg>` |
 
 詳細命令見 `references/javascript/yarn_workflow.md` / `references/javascript/npm_workflow.md` / `references/javascript/pnpm_workflow.md` 的「Transitive 升級策略」章節。
@@ -1695,7 +1713,7 @@ bash scripts/go/snapshot_env.sh <project_path> save
 | `major_version_rewrite` | 改 import path + bump go.mod | `gomajor get <module>/v2@<ver>` (or manual two-step, see below) |
 | `bump_parent` | 升 direct parent，讓它拉新版 target | `go get <parent>@<ver-or-latest> && go mod tidy` |
 | `bump_indirect` | 直接 bump indirect entry | `go get <module>@<ver> && go mod tidy` |
-| `add_replace` | 編輯 `go.mod` 加 `replace` directive | 編輯後 `go mod tidy` |
+| `pin_add` / `pin_update` / `pin_source` | 編輯 `go.mod` 加/改 `replace` directive（mechanism=`go-replace`） | 編輯後 `go mod tidy` |
 
 升完後 **若 `is_vendored == true`** 一定要追加 `go mod vendor` 重建 vendor/。
 
@@ -1703,6 +1721,30 @@ bash scripts/go/snapshot_env.sh <project_path> save
 major version path rewrite 詳見 `references/go/major_version_paths.md`。
 
 ---
+
+#### lock-only consent gate（走 lock-only 前必停）
+
+走 `lock_only`（直接刷 lock 升 B、不在 manifest 留任何宣告）前，**必須暫停詢問使用者**。
+這對 Python（poetry update / uv lock --upgrade-package / pip-compile）與 JS（npm/pnpm
+update、yarn set resolution 後手動補 lockfile）都適用。呈現以下三點再等使用者決定：
+
+```
+⚠️ 準備以 lock-only 方式升 {package} → {target_version}（只動 lock，不改 manifest）：
+
+  1. 目前 parent (A) 的約束允許 {target_version}（dep_tree 已驗證 parent constraint 通過）。
+  2. 我們只刷新 lock，不升 A、也不在 manifest 加任何 pin。
+  3. 風險：manifest 完全沒記錄這次 bump。日後 A 被升級重新解析時，lock 上的 {package}
+     可能被「靜默 hold back」（回退到較舊版本），漏洞重新出現且無聲無息。
+     dep_tree 已在此 strategy 標 requires_consent: true 並附 warning。
+
+繼續嗎?
+[Y] 是, 我了解風險, 走 lock-only
+[P] 改走 pin_add / pin_update（在 manifest 留下宣告，較不易被回退）
+[N] 取消
+```
+
+收到 `[Y]` → 進入下方「Transitive: lock-only 路徑」。`[P]` → 改走對應的 pin 策略。
+`[N]` / 其他 → 中止，不修改任何檔案。
 
 #### Transitive: lock-only 路徑
 
@@ -2021,7 +2063,7 @@ go mod tidy
 # go.mod 中該 module 的 `// indirect` 註解會保留
 ```
 
-**add_replace** (last resort，需使用者確認):
+**pin_add / pin_source** (replace, last resort，需使用者確認):
 用 Edit tool 加入 `replace` directive,然後：
 ```bash
 go mod tidy
@@ -2897,7 +2939,7 @@ go mod vendor
 | Phase 2.2 B/Go-2: major_version_rewrite | 列舊新 import path + 影響檔數,選 gomajor 或 manual fallback |
 | Phase 2.2 B/Go-3: 升 direct parent (預設推薦) | parent chain + 是否升 |
 | Phase 2.2 B/Go-4: bump_indirect 直接動 indirect entry | 確認改 `// indirect` 條目 |
-| Phase 2.2 B/Go-5: add_replace last resort | 強烈警告 replace 不會傳遞給 downstream consumer |
+| Phase 2.2 B/Go-5: pin_add / pin_source (replace) last resort | 強烈警告 replace 不會傳遞給 downstream consumer |
 | Phase 2.2 B-3 (Python): Transitive lock-only 升級確認 | 套件是 transitive、parent 允許,僅更新 lock 不動宣告檔 |
 | Phase 2.2 B-4 (Python): Parent 阻擋升級的決策 | parent 約束擋住,問使用者升級 parent / 放棄 / 自選 |
 | Phase 2.3: 衝突解決方案 | 多種方案 + 風險評估 + 推薦 |

@@ -300,7 +300,7 @@ def test_pnpm_v9_transitive_parent_from_snapshots(
 
 
 def test_pnpm_overrides_pin_detected(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
-    """pnpm.overrides should be surfaced so Phase 2 picks bump_override over hand-edit."""
+    """pnpm.overrides should be surfaced so Phase 2 picks pin_update over hand-edit."""
     (tmp_path / "package.json").write_text(
         json.dumps(
             {
@@ -318,7 +318,7 @@ def test_pnpm_overrides_pin_detected(node_bin, scripts_dir, js_deps_installed, t
     assert pin is not None
     assert pin["kind"] == "pnpm-overrides"
     assert pin["value"] == "4.0.4"
-    assert out["recommended_strategy"] == "bump_override"
+    assert out["recommended_strategy"] == "pin_update"
 
 
 def test_pnpm_workspace_locations_detected(

@@ -689,7 +689,7 @@ function walkUpToDirectParents(target, reverseIndex, directDepNames, maxDepth = 
  * for the target?" and decide whether bumping P would actually pull a
  * target version that satisfies the desired target_version. Without this
  * the JS path could only GUESS that bump_parent helps; with it we KNOW —
- * so add_override can be promoted when every parent's latest still pins an
+ * so pin_add can be promoted when every parent's latest still pins an
  * old target (the "A cannot be upgraded to fix this" case).
  *
  * Network is via `npm view` (respects the project .npmrc / auth that
@@ -794,16 +794,20 @@ function analyzeParents(projectPath, directParents, target, targetVersion) {
 }
 
 /**
- * Decide the recommended upgrade strategy ranked by user preference:
- *   1. direct_bump  — target is declared directly in package.json
- *   2. bump_override — target is in package.json overrides/resolutions
- *   3. bump_parent  — bump a direct parent so it pulls a new target
- *   4. add_override — no parent path works; add overrides/resolutions
- *   5. lock_only    — last resort; truly orphan transitive with no parent
- *                     in package.json and no override field exists
+ * Decide the recommended upgrade strategy ranked by user preference.
+ * Canonical `type` values (aligned with dep_tree.py / dep_tree_go.py); each
+ * strategy also carries a `mechanism` (npm-overrides / yarn-resolutions /
+ * pnpm-overrides / bun-overrides):
+ *   1. direct_bump — target is declared directly in package.json
+ *   2. pin_update  — target already has an overrides/resolutions/pnpm.overrides
+ *                    entry → update it
+ *   3. bump_parent — bump a direct parent so it pulls a new target
+ *   4. pin_add     — no existing pin; add a new overrides/resolutions entry
+ *   5. lock_only   — last resort; truly orphan transitive with no parent
+ *                    in package.json and no override field exists
  *
  * When parent_analyses is available (target_version probed) and EVERY parent
- * is definitively unhelpful (would_not_help_pin / no_dep), add_override is
+ * is definitively unhelpful (would_not_help_pin / no_dep), pin_add is
  * promoted ABOVE bump_parent — this is the "A cannot be upgraded to fix B"
  * case the SKILL.md B/JS-4 consent gate hinges on.
  */
@@ -812,9 +816,20 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
                                 parentAnalyses, pkgManager }) {
     const strategies = [];
 
+    // The override/resolution mechanism for this package manager — the language
+    // -specific carrier behind canonical pin_add / pin_update / lock_only.
+    const overrideMechanism = pkgManager === 'yarn'
+        ? 'yarn-resolutions'
+        : pkgManager === 'pnpm'
+            ? 'pnpm-overrides'
+            : pkgManager === 'bun'
+                ? 'bun-overrides'
+                : 'npm-overrides';
+
     if (declaredIn.length > 0) {
         strategies.push({
             type: 'direct_bump',
+            mechanism: overrideMechanism,
             rationale: `Target is declared directly in package.json (${declaredIn.join(', ')}); bump it there and the lockfile follows.`,
             current_constraint: declaredConstraint,
             apply_hint: pkgManager === 'yarn'
@@ -829,7 +844,8 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
     const overrideHit = overridesPin.overrides || overridesPin.resolutions || overridesPin.pnpm_overrides;
     if (overrideHit) {
         strategies.push({
-            type: 'bump_override',
+            type: 'pin_update',
+            mechanism: overrideHit.kind,
             rationale: `Target is pinned via ${overrideHit.kind} (key: ${overrideHit.key}, current: ${overrideHit.value}). Update that entry in package.json — preferable to hand-editing the lockfile.`,
             field: overrideHit.kind,
             current_value: overrideHit.value,
@@ -841,7 +857,7 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
         (parentAnalyses || []).map(a => [a.parent, a])
     );
     const probed = (parentAnalyses || []).length > 0;
-    // Promote add_override only on POSITIVE evidence that no parent helps —
+    // Promote pin_add only on POSITIVE evidence that no parent helps —
     // every probed parent must be definitively unhelpful. A single "unknown"
     // (offline / private) keeps bump_parent first, since we can't rule it out.
     const allParentsUnhelpful = probed && parentAnalyses.every(
@@ -853,6 +869,7 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
         const a = statusByParent.get(parent);
         return {
             type: 'bump_parent',
+            mechanism: overrideMechanism,
             target: parent,
             rationale: `${parent} is a direct dependency that (transitively) pulls in the target. Bumping ${parent} lets ITS new release pick a compatible target version — safer than overriding the lockfile entry.`,
             parent_chain: chainsForParent[0] || [parent],
@@ -870,11 +887,12 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
         };
     });
 
-    // add_override is offered when target is transitive and no direct
+    // pin_add is offered when target is transitive and no direct
     // package.json constraint exists — covers the case where bump_parent's
     // new version doesn't actually pull a new target.
-    const addOverride = (declaredIn.length === 0 && !overrideHit) ? {
-        type: 'add_override',
+    const pinAdd = (declaredIn.length === 0 && !overrideHit) ? {
+        type: 'pin_add',
+        mechanism: overrideMechanism,
         rationale: allParentsUnhelpful
             ? `Every direct parent's latest release still cannot pull the target version (see parent_analyses) — the parent CANNOT be upgraded to fix this. Pin the target via overrides (npm) / resolutions (yarn) / pnpm.overrides in package.json. REQUIRES explicit user consent (SKILL.md B/JS-4).`
             : 'Add an overrides (npm) / resolutions (yarn) / pnpm.overrides entry to package.json to pin the target to the new version. Expresses intent in package.json instead of hand-editing the lockfile.',
@@ -887,14 +905,14 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
                 : '{"overrides": {"<target>": "<new-version>"}}',
     } : null;
 
-    if (allParentsUnhelpful && addOverride) {
-        // bump_parent is provably useless — surface add_override first, but
+    if (allParentsUnhelpful && pinAdd) {
+        // bump_parent is provably useless — surface pin_add first, but
         // keep bump_parent listed (with its reason) for transparency.
-        strategies.push(addOverride);
+        strategies.push(pinAdd);
         strategies.push(...bumpParentStrategies);
     } else {
         strategies.push(...bumpParentStrategies);
-        if (addOverride) strategies.push(addOverride);
+        if (pinAdd) strategies.push(pinAdd);
     }
 
     // lock_only is the LAST resort and only listed when there's no
@@ -902,8 +920,10 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
     if (declaredIn.length === 0 && !overrideHit && directParents.length === 0) {
         strategies.push({
             type: 'lock_only',
+            mechanism: overrideMechanism,
+            requires_consent: true,
             rationale: '⚠️ Last resort: no package.json constraint exists for target, and no direct parent could be walked to. This means hand-editing the lockfile or running pkg-manager-specific lock-update commands. Make sure validate_lockfile.sh passes before committing.',
-            warning: 'Hand-editing the lockfile loses the audit trail; prefer add_override above unless explicitly told otherwise.',
+            warning: 'Hand-editing the lockfile loses the audit trail and records nothing in the manifest — a later parent upgrade can silently hold the pin back. Prefer pin_add above unless explicitly told otherwise; requires user consent.',
         });
     }
 

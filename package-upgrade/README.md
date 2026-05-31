@@ -98,7 +98,7 @@ Skill 在以下時間點會暫停等你確認，不會自動執行：
 |--------|------|
 | Phase 0.3 Pre-flight blockers | 缺 token、git tree 不乾淨等；提供 [1] 修完再來 / [2] 走 fallback / [3] 中止 |
 | Phase 1.C Jira 解析 | 從 ticket 抽到的 package / 版本 / CVE / 驗收條件，等你校正 |
-| Phase 2 升級策略 | direct_bump / bump_override / bump_parent / lock_only / add_replace 等 |
+| Phase 2 升級策略 | direct_bump / lock_only / bump_parent / pin_add / pin_update / pin_source 等（Go 另有 bump_indirect / major_version_rewrite） |
 | Phase 2 (Python) Pip lock 處理 | 非標準 lockfile 的產生方式 |
 | Phase 2.0 Workspace 範圍 | JS workspace / Go submodule 要動哪幾個 |
 | Phase 2.2 (Go) major version jump | 列出所有要 rewrite 的 import path |

@@ -202,7 +202,7 @@ cd path/to/submodule && go get example.com/foo@v1.5.0
 | `major_version_rewrite` | target 新版本是 `v2+`，且當前是 `v0/v1`（major version path 不同） | 走 `major_version_paths.md` 流程 |
 | `bump_parent` | target 是 indirect，存在直接 parent 在 `go.mod` 中 | `go get <parent>@<version-that-pulls-new>` |
 | `bump_indirect` | target 是 indirect，無 parent 路徑或為直接安全 pin | `go get target@version`（在 `go.mod` 中新增/更新 indirect entry） |
-| `add_replace` | target 在上游無新版、需 fork、或緊急 patch | 編輯 `go.mod` 加 `replace` directive — **永遠詢問使用者** |
+| `pin_add` / `pin_update` / `pin_source` | target 在上游無新版、需 fork、或緊急 patch（無既有 replace→`pin_add`；改既有 replace 版本→`pin_update`；指向 fork→`pin_source`，mechanism 皆 `go-replace`） | 編輯 `go.mod` 加/改 `replace` directive — **永遠詢問使用者** |
 
 ⚠️ **跟 JS path 的差異**：沒有 `lock_only` strategy。原因：`go.mod` 同時是 manifest，
 任何升級都會改它。`bump_indirect` 是 Go 的最接近等價物。

@@ -44,7 +44,7 @@ go mod why -m <target>
 (main module does not need package example.com/leaf)
 ```
 
-只要看到 `(main module does not need ...)`，預設策略要改為 `add_replace`。
+只要看到 `(main module does not need ...)`，預設策略要改為 `pin_add`（新增 `replace`）。
 
 ### 偵測欄位
 
@@ -53,7 +53,7 @@ go mod why -m <target>
 | 值 | 意義 | 策略含意 |
 |----|------|---------|
 | `needed` | target 在 build path 上 | bump_indirect / bump_parent 都可考慮 |
-| `not_needed_by_main_module` | target 不在 build path,只是 graph 殘留 | **降權 bump_indirect / bump_parent;升權 add_replace** |
+| `not_needed_by_main_module` | target 不在 build path,只是 graph 殘留 | **降權 bump_indirect / bump_parent;升權 pin_add（replace）** |
 | `not_in_module_graph` | target 已不在 graph 上 | not_present,純加新 dep |
 | `unknown` | `go mod why` 跑失敗 / 解析失敗 | 不調權,但 rationale 標明此降級 |
 
@@ -123,11 +123,11 @@ import library-go 時，**那條 replace 完全被忽略**。結果是我的 mod
 2. L 在 main module 看起來是 indirect，`go mod why -m L` 回 `not needed`
 3. 唯一的 direct parent `P` 的最新版本要嘛還沒升 L (規範 1 失效)，要嘛已升但用 replace (規範 2 失效)
 
-此時 skill 的決策樹應該直接走 `add_replace`：
+此時 skill 的決策樹應該直接走 `pin_add`（新增 `replace`）：
 
 ```jsonc
 {
-  "recommended_strategy": "add_replace",
+  "recommended_strategy": "pin_add",
   "rationale": "Target is indirect AND not on build path (`go mod why`: not needed). "
                "Parent bump won't help: `P@latest` still pins `L@old` OR uses a local replace. "
                "Per Go spec, replace doesn't flow to downstream consumers. "

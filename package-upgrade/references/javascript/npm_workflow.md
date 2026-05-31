@@ -47,7 +47,7 @@ npm install <package>@<version> --save-peer --ignore-scripts
 npm install <pkg>@<range> --save --ignore-scripts
 ```
 
-#### 2. `bump_override` — target 在 `overrides` (npm 慣例) 已被釘版
+#### 2. `pin_update` — target 在 `overrides` (npm 慣例) 已被釘版
 
 直接編輯 `package.json` 把對應 entry 的 value 改成新版本：
 
@@ -72,7 +72,7 @@ npm install <direct-parent>@<new-range> --save --ignore-scripts
 
 升完 parent 後，npm 會把新版的 target 一併拉進 lock。記得 Phase 6 跑測試。
 
-#### 4. `add_override` — `bump_parent` 不適用 / 不夠精確時
+#### 4. `pin_add` — `bump_parent` 不適用 / 不夠精確時
 
 在 `package.json` 加 `overrides` (npm 8+)：
 
@@ -89,11 +89,11 @@ npm install <direct-parent>@<new-range> --save --ignore-scripts
 npm install --package-lock-only --ignore-scripts
 ```
 
-> **與 `bump_parent` 的取捨**: `add_override` 一定生效但繞過 parent 的相容性
+> **與 `bump_parent` 的取捨**: `pin_add` 一定生效但繞過 parent 的相容性
 > 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版
 > （`dep_tree.js --target-version` 的 `parent_analyses` 會實測這點）。
 >
-> ⚠️ `add_override` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
+> ⚠️ `pin_add` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
 > 說明「parent 無法升級到能解決的版本」並取得明確 `[Y]`，才能寫入 override。
 
 #### 5. `lock_only` — **last resort**，僅在 `dep_tree_js.js` 確認無 override 且無 direct parent 可達時
@@ -108,7 +108,7 @@ npm ci --offline --dry-run    # 驗證 checksum
 
 **驗證所有 transitive 升級**：
 - `bump_parent` / `direct_bump` → `git diff package.json` 有變動、`git diff package-lock.json` 也有
-- `bump_override` / `add_override` → 同上（overrides 的變動算 manifest 變動）
+- `pin_update` / `pin_add` → 同上（overrides 的變動算 manifest 變動）
 - `lock_only` → 只有 `package-lock.json` 動
 
 ### `@types/<pkg>` 同步升級

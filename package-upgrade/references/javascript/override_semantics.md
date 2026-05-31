@@ -1,7 +1,7 @@
 # JS Override Semantics — npm / yarn / pnpm / bun 的 transitive pin
 
 > 這份文件統整 JS 四套套件管理工具強制升降 transitive dependency 的語法。
-> Phase 2 在挑選策略 `bump_override` 時應引用本檔。對應 Python 的
+> Phase 2 在挑選策略 `pin_update` / `pin_add` 時應引用本檔。對應 Python 的
 > `../python/override_semantics.md`、Go 的 `../go/replace_semantics.md`。
 
 ---
@@ -192,14 +192,14 @@ bun 不支援 `resolutions`（yarn 語法）。若專案歷史是 yarn 移植到
 
 ## 對應策略表
 
-| pkg_manager | 語法 | 巢狀支援 | 適用 SKILL.md 策略 |
-|-------------|------|----------|---------------------|
-| npm | `overrides: {...}` | object | `bump_override` |
-| yarn 1 | `resolutions: {...}` | glob (`**/`) | `bump_override` |
-| yarn 3+ | `resolutions: {...}` + `.yarnrc.yml packageExtensions` | glob (`**/`) | `bump_override` |
-| pnpm | `pnpm.overrides: {...}` | `parent>child` | `bump_override` |
-| pnpm + patch | `pnpm.patchedDependencies` | path 對版本 | `add_patch_override`（新策略） |
-| bun | `overrides: {...}` | object | `bump_override` |
+| pkg_manager | 語法 | 巢狀支援 | mechanism | 適用 SKILL.md 策略 |
+|-------------|------|----------|-----------|---------------------|
+| npm | `overrides: {...}` | object | `npm-overrides` | `pin_update`（已有）/ `pin_add`（新增） |
+| yarn 1 | `resolutions: {...}` | glob (`**/`) | `yarn-resolutions` | `pin_update` / `pin_add` |
+| yarn 3+ | `resolutions: {...}` + `.yarnrc.yml packageExtensions` | glob (`**/`) | `yarn-resolutions` | `pin_update` / `pin_add` |
+| pnpm | `pnpm.overrides: {...}` | `parent>child` | `pnpm-overrides` | `pin_update` / `pin_add` |
+| pnpm + patch | `pnpm.patchedDependencies` | path 對版本 | `pnpm-overrides` | `add_patch_override`（新策略） |
+| bun | `overrides: {...}` | object | `bun-overrides` | `pin_update` / `pin_add` |
 
 ---
 
@@ -213,7 +213,7 @@ bun 不支援 `resolutions`（yarn 語法）。若專案歷史是 yarn 移植到
 | `package.json#pnpm.patchedDependencies` 非空 | `has_pnpm_patches` |
 | `.yarnrc.yml` 含 `packageExtensions:` | `has_yarn_package_extensions` |
 
-這些 hint 讓 Phase 2 策略選擇有依據——當專案已經有 override 機制，bump_override 是
+這些 hint 讓 Phase 2 策略選擇有依據——當專案已經有 override 機制，pin_update 是
 零成本選擇；若還沒有，要新加 override 並更新報告與 commit message。
 
 ---
@@ -251,4 +251,4 @@ bun 不支援 `resolutions`（yarn 語法）。若專案歷史是 yarn 移植到
 Go 有 `../go/replace_semantics.md`、Python 有 `../python/override_semantics.md` 統整 override
 語意，JS 對應知識散落在 `npm_workflow.md` / `yarn_workflow.md`，使用者要在兩個檔案間跳，
 且 pnpm / bun 沒有專屬 workflow.md 涵蓋這塊。本文件統整四套工具的 override 寫法
-（TODO.md 任務 2.2），是 Phase 2 `bump_override` 策略的單一參考來源。
+（TODO.md 任務 2.2），是 Phase 2 `pin_update` / `pin_add` 策略的單一參考來源。
