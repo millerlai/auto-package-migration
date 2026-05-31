@@ -38,14 +38,23 @@
 
 const fs = require('fs');
 const path = require('path');
+const semver = require('semver');
 const { execSync } = require('child_process');
 
 function parseArgs(argv) {
-    const args = { projectPath: argv[2], packageName: argv[3], pkgManager: null };
+    const args = {
+        projectPath: argv[2], packageName: argv[3],
+        pkgManager: null, targetVersion: null, noProbe: false,
+    };
     for (let i = 4; i < argv.length; i++) {
         if (argv[i] === '--pkg-manager' && argv[i + 1]) {
             args.pkgManager = argv[i + 1];
             i++;
+        } else if (argv[i] === '--target-version' && argv[i + 1]) {
+            args.targetVersion = argv[i + 1];
+            i++;
+        } else if (argv[i] === '--no-probe') {
+            args.noProbe = true;
         }
     }
     return args;
@@ -673,6 +682,117 @@ function walkUpToDirectParents(target, reverseIndex, directDepNames, maxDepth = 
     };
 }
 
+/* ============================================================
+ * Parent probing (mirrors dep_tree.py / dep_tree_go.sh parent_analyses).
+ *
+ * For each direct parent P we ask the registry "what does P@latest require
+ * for the target?" and decide whether bumping P would actually pull a
+ * target version that satisfies the desired target_version. Without this
+ * the JS path could only GUESS that bump_parent helps; with it we KNOW —
+ * so add_override can be promoted when every parent's latest still pins an
+ * old target (the "A cannot be upgraded to fix this" case).
+ *
+ * Network is via `npm view` (respects the project .npmrc / auth that
+ * pre-flight already validated). Any failure degrades gracefully to
+ * status "unknown" — never throws.
+ * ============================================================ */
+
+/** Resolve target_version (which may be a range like ">=4.0.4") to a single
+ * concrete version we can test parent ranges against. */
+function concreteTargetVersion(targetVersion) {
+    if (!targetVersion) return null;
+    if (semver.valid(targetVersion)) return targetVersion;
+    try {
+        const mv = semver.minVersion(targetVersion);
+        if (mv) return mv.version;
+    } catch (_) { /* fall through */ }
+    const coerced = semver.coerce(targetVersion);
+    return coerced ? coerced.version : null;
+}
+
+/** Fetch P@latest metadata from the registry. Returns parsed object or null. */
+function npmViewLatest(projectPath, parentName) {
+    try {
+        const out = execSync(
+            `npm view ${parentName}@latest --json`,
+            { cwd: projectPath, stdio: ['ignore', 'pipe', 'ignore'],
+              timeout: 20000, maxBuffer: 1024 * 1024 * 32 }
+        ).toString();
+        const data = JSON.parse(out);
+        // A range may resolve to an array of versions; take the last (highest).
+        return Array.isArray(data) ? data[data.length - 1] : data;
+    } catch (_) {
+        return null;
+    }
+}
+
+/** Find P@latest's declared constraint on target across dep fields. */
+function constraintOnTarget(parentMeta, target) {
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+        const deps = parentMeta && parentMeta[field];
+        if (deps && Object.prototype.hasOwnProperty.call(deps, target)) {
+            return { field, range: deps[target] };
+        }
+    }
+    return null;
+}
+
+/**
+ * Probe every direct parent. Returns one analysis per parent:
+ *   { parent, parent_latest, field, constraint_on_target, status, reason }
+ * status ∈ satisfies | would_not_help_pin | no_dep | unknown
+ *
+ * Only meaningful when concreteTarget is known; callers gate on that.
+ */
+function analyzeParents(projectPath, directParents, target, targetVersion) {
+    const concrete = concreteTargetVersion(targetVersion);
+    const analyses = [];
+    for (const parent of directParents) {
+        const meta = npmViewLatest(projectPath, parent);
+        if (!meta || !meta.version) {
+            analyses.push({
+                parent, parent_latest: null, field: null, constraint_on_target: null,
+                status: 'unknown',
+                reason: `Could not probe ${parent}@latest (offline / private registry / unpublished).`,
+            });
+            continue;
+        }
+        const c = constraintOnTarget(meta, target);
+        if (!c) {
+            analyses.push({
+                parent, parent_latest: meta.version, field: null, constraint_on_target: null,
+                status: 'no_dep',
+                reason: `${parent}@${meta.version} no longer declares ${target}; bumping it would not pin ${target} to ${concrete || targetVersion}.`,
+            });
+            continue;
+        }
+        let satisfies = null;
+        if (concrete && semver.validRange(c.range)) {
+            satisfies = semver.satisfies(concrete, c.range, { includePrerelease: true });
+        }
+        if (satisfies === true) {
+            analyses.push({
+                parent, parent_latest: meta.version, field: c.field, constraint_on_target: c.range,
+                status: 'satisfies',
+                reason: `${parent}@${meta.version} requires ${target} ${c.range}, which includes ${concrete} — bumping ${parent} pulls a compatible ${target}.`,
+            });
+        } else if (satisfies === false) {
+            analyses.push({
+                parent, parent_latest: meta.version, field: c.field, constraint_on_target: c.range,
+                status: 'would_not_help_pin',
+                reason: `${parent}@${meta.version} (latest) still requires ${target} ${c.range}, which does NOT include ${concrete} — bumping ${parent} cannot pull ${target}@${concrete}.`,
+            });
+        } else {
+            analyses.push({
+                parent, parent_latest: meta.version, field: c.field, constraint_on_target: c.range,
+                status: 'unknown',
+                reason: `${parent}@${meta.version} requires ${target} ${c.range}; could not evaluate against target version ${targetVersion || '(not provided)'}.`,
+            });
+        }
+    }
+    return analyses;
+}
+
 /**
  * Decide the recommended upgrade strategy ranked by user preference:
  *   1. direct_bump  — target is declared directly in package.json
@@ -681,10 +801,15 @@ function walkUpToDirectParents(target, reverseIndex, directDepNames, maxDepth = 
  *   4. add_override — no parent path works; add overrides/resolutions
  *   5. lock_only    — last resort; truly orphan transitive with no parent
  *                     in package.json and no override field exists
+ *
+ * When parent_analyses is available (target_version probed) and EVERY parent
+ * is definitively unhelpful (would_not_help_pin / no_dep), add_override is
+ * promoted ABOVE bump_parent — this is the "A cannot be upgraded to fix B"
+ * case the SKILL.md B/JS-4 consent gate hinges on.
  */
 function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
                                 directParents, transitiveParents, chains,
-                                pkgManager }) {
+                                parentAnalyses, pkgManager }) {
     const strategies = [];
 
     if (declaredIn.length > 0) {
@@ -711,37 +836,65 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
         });
     }
 
-    if (directParents.length > 0) {
-        for (const parent of directParents) {
-            // Find the chain(s) that end in this parent
-            const chainsForParent = chains.filter(c => c[c.length - 1] === parent);
-            strategies.push({
-                type: 'bump_parent',
-                target: parent,
-                rationale: `${parent} is a direct dependency that (transitively) pulls in the target. Bumping ${parent} lets ITS new release pick a compatible target version — safer than overriding the lockfile entry.`,
-                parent_chain: chainsForParent[0] || [parent],
-                apply_hint: pkgManager === 'yarn'
-                    ? `$PKG_MANAGER_BIN up ${parent}`
-                    : pkgManager === 'pnpm'
-                        ? `pnpm up ${parent}`
-                        : `npm install ${parent}@<new-range>`,
-            });
-        }
-    }
+    // Per-parent status lookup from the probe (empty when not probed).
+    const statusByParent = new Map(
+        (parentAnalyses || []).map(a => [a.parent, a])
+    );
+    const probed = (parentAnalyses || []).length > 0;
+    // Promote add_override only on POSITIVE evidence that no parent helps —
+    // every probed parent must be definitively unhelpful. A single "unknown"
+    // (offline / private) keeps bump_parent first, since we can't rule it out.
+    const allParentsUnhelpful = probed && parentAnalyses.every(
+        a => a.status === 'would_not_help_pin' || a.status === 'no_dep'
+    );
 
-    // add_override is always offered when target is transitive and no direct
+    const bumpParentStrategies = directParents.map(parent => {
+        const chainsForParent = chains.filter(c => c[c.length - 1] === parent);
+        const a = statusByParent.get(parent);
+        return {
+            type: 'bump_parent',
+            target: parent,
+            rationale: `${parent} is a direct dependency that (transitively) pulls in the target. Bumping ${parent} lets ITS new release pick a compatible target version — safer than overriding the lockfile entry.`,
+            parent_chain: chainsForParent[0] || [parent],
+            // Probe verdict (null when not probed) — SKILL.md B/JS-3 renders
+            // the "does bumping the parent help?" column straight from these.
+            parent_status: a ? a.status : null,
+            parent_latest: a ? a.parent_latest : null,
+            parent_constraint_on_target: a ? a.constraint_on_target : null,
+            status_reason: a ? a.reason : null,
+            apply_hint: pkgManager === 'yarn'
+                ? `$PKG_MANAGER_BIN up ${parent}`
+                : pkgManager === 'pnpm'
+                    ? `pnpm up ${parent}`
+                    : `npm install ${parent}@<new-range>`,
+        };
+    });
+
+    // add_override is offered when target is transitive and no direct
     // package.json constraint exists — covers the case where bump_parent's
     // new version doesn't actually pull a new target.
-    if (declaredIn.length === 0 && !overrideHit) {
-        strategies.push({
-            type: 'add_override',
-            rationale: 'Add an overrides (npm) / resolutions (yarn) / pnpm.overrides entry to package.json to pin the target to the new version. Expresses intent in package.json instead of hand-editing the lockfile.',
-            patch_hint: pkgManager === 'yarn'
-                ? '{"resolutions": {"<target>": "<new-version>"}}'
-                : pkgManager === 'pnpm'
-                    ? '{"pnpm": {"overrides": {"<target>": "<new-version>"}}}'
-                    : '{"overrides": {"<target>": "<new-version>"}}',
-        });
+    const addOverride = (declaredIn.length === 0 && !overrideHit) ? {
+        type: 'add_override',
+        rationale: allParentsUnhelpful
+            ? `Every direct parent's latest release still cannot pull the target version (see parent_analyses) — the parent CANNOT be upgraded to fix this. Pin the target via overrides (npm) / resolutions (yarn) / pnpm.overrides in package.json. REQUIRES explicit user consent (SKILL.md B/JS-4).`
+            : 'Add an overrides (npm) / resolutions (yarn) / pnpm.overrides entry to package.json to pin the target to the new version. Expresses intent in package.json instead of hand-editing the lockfile.',
+        promoted_over_bump_parent: allParentsUnhelpful,
+        requires_consent: true,
+        patch_hint: pkgManager === 'yarn'
+            ? '{"resolutions": {"<target>": "<new-version>"}}'
+            : pkgManager === 'pnpm'
+                ? '{"pnpm": {"overrides": {"<target>": "<new-version>"}}}'
+                : '{"overrides": {"<target>": "<new-version>"}}',
+    } : null;
+
+    if (allParentsUnhelpful && addOverride) {
+        // bump_parent is provably useless — surface add_override first, but
+        // keep bump_parent listed (with its reason) for transparency.
+        strategies.push(addOverride);
+        strategies.push(...bumpParentStrategies);
+    } else {
+        strategies.push(...bumpParentStrategies);
+        if (addOverride) strategies.push(addOverride);
     }
 
     // lock_only is the LAST resort and only listed when there's no
@@ -904,6 +1057,19 @@ function main() {
     // the DefinitelyTyped sibling alongside the runtime package.
     const typesSibling = detectTypesSibling(manifest, args.packageName, parsedLockfile);
 
+    // Parent probing — only when target is transitive, has direct parents,
+    // a target version was given, and the user didn't opt out. Mirrors the
+    // Go/Python parent_analyses: lets us KNOW (not guess) whether bumping a
+    // parent can actually pull the desired target version.
+    let parentAnalyses = [];
+    if (declaredIn.length === 0 && chainInfo.direct_parents.length > 0
+        && args.targetVersion && !args.noProbe) {
+        parentAnalyses = analyzeParents(
+            args.projectPath, chainInfo.direct_parents,
+            args.packageName, args.targetVersion,
+        );
+    }
+
     // Recommend upgrade strategies in priority order (per user feedback:
     // prefer bumping the source-of-truth in package.json over hand-editing
     // the lockfile).
@@ -914,6 +1080,7 @@ function main() {
         directParents: chainInfo.direct_parents,
         transitiveParents: chainInfo.transitive_parents,
         chains: chainInfo.chains,
+        parentAnalyses,
         pkgManager,
     });
 
@@ -940,6 +1107,9 @@ function main() {
         direct_parents:     chainInfo.direct_parents,
         transitive_parents: chainInfo.transitive_parents,
         parent_chains:      chainInfo.chains,
+        // NEW field — per-parent registry probe (empty unless --target-version
+        // given). Schema-aligned with dep_tree.py / dep_tree_go.sh parent_analyses.
+        parent_analyses:    parentAnalyses,
         // NEW field — ranked upgrade strategies
         upgrade_strategies: upgradeStrategies,
         recommended_strategy: upgradeStrategies[0] ? upgradeStrategies[0].type : null,
