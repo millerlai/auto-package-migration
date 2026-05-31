@@ -759,12 +759,28 @@ python scripts/python/dep_tree.py <project_path> <package_name> \
 **若 `language == "javascript"`**（lockfile-first，**不需要 node_modules**）：
 
 ```bash
-node scripts/javascript/dep_tree.js <project_path> <package_name>
+node scripts/javascript/dep_tree.js <project_path> <package_name> \
+    [--target-version <v>] [--no-probe]
 ```
 
 JS 版的 dep_tree 已改為直接解析 lockfile（`yarn.lock` v1/v3、`pnpm-lock.yaml`、
 `package-lock.json`），不需要 `npm ls`。輸出中的 `source` 欄位會標明使用了
 哪個 lockfile（`yarn3-lock` / `yarn1-lock` / `pnpm-lock` / `npm-lock` / `npm-ls`）。
+
+`--target-version` 與 `--no-probe` 為選用。**target 是 transitive 且已知目標版本時，
+務必帶 `--target-version`**（CVE 修復版本、Jira 指定版本等）：腳本會對每個 direct
+parent 跑 `npm view <parent>@latest`，解析它對 target 的版本約束，用 semver 判定升
+parent 是否真的能拉到目標版本，輸出在 `parent_analyses[]`（schema 對齊 `dep_tree.py`
+/ `dep_tree_go.sh`），每筆含 `status`：
+- `satisfies` — parent@latest 的範圍涵蓋目標版本 → `bump_parent` 有效
+- `would_not_help_pin` — parent@latest 仍 pin 舊範圍、不含目標版本 → 升 parent **無效**
+- `no_dep` — parent@latest 已不再依賴 target
+- `unknown` — 無法 probe（離線 / 私有 registry / 未提供 target version）
+
+當**所有** parent 都是 `would_not_help_pin` / `no_dep` 時，`recommend_strategy` 會自動
+把 `add_override` 升權排在 `bump_parent` 之前（代表「parent 無法升級到能解決的版本」）。
+未提供 `--target-version` 或加了 `--no-probe` 時 `parent_analyses` 為空，策略 fallback
+為僅依 chain 結構排序（`bump_parent` 仍排在 `add_override` 前）。
 
 **若 `language == "go"`**：
 
@@ -860,18 +876,21 @@ JS 額外輸出（供 Phase 2.0 與 Phase 5 使用）：
 **B/JS-3. `bump_parent`** — **預設推薦**。target 不在 package.json，但
 `direct_parents` 含至少一個在 package.json 的直接依賴 P。升 P 而不是硬改 lock。
 
-報告並暫停確認：
+報告並暫停確認（表格的「升 parent 是否解決」欄與 reason **直接由 `parent_analyses[]`
+渲染**——帶 `--target-version` 跑過 probe 時是實測結果，未跑時為「未驗證」，
+**reason 原樣展示、不要自行改寫**）：
 ```
 {package} 是 transitive，由以下 direct parent(s) 引入：
 
-| Parent | 在 package.json 中的範圍 | parent 最新版本 | 升 parent 是否解決 |
-|--------|-------------------------|----------------|-------------------|
-| {direct_parent} | {constraint_in_root} | {latest} | ✅/❌ |
-| ...    | ...                     | ...            | ... |
+| Parent | 在 package.json 中的範圍 | parent 最新版本 | parent@latest 對 {package} 的約束 | 升 parent 是否解決 |
+|--------|-------------------------|----------------|----------------------------------|-------------------|
+| {direct_parent} | {constraint_in_root} | {parent_latest} | requires {constraint_on_target} | ✅ satisfies |
+| {direct_parent_2} | {constraint_in_root} | {parent_latest} | requires {constraint_on_target} | ❌ would_not_help_pin |
+| ...    | ...                     | ...            | ...                              | ... |
 
 Parent chain: {target} ← ... ← {direct_parent}
 
-建議策略: 升級 {direct_parent} 到 {latest}，由它自己拉新版的 {package}。
+建議策略: 升級 {direct_parent} 到 {parent_latest}，由它自己拉新版的 {package}。
 這比「直接動 lock」安全 — parent 對 target 的相容性已經由 parent 維護者驗證。
 
 繼續嗎?
@@ -881,23 +900,47 @@ Parent chain: {target} ← ... ← {direct_parent}
 [N] 取消
 ```
 
-**B/JS-4. `add_override`** — target 是 transitive 且 package.json 沒有任何約束，
-但能走到一個 direct parent。提供「不動 parent，加 override」這條替代路徑。
+若 **所有 parent 都是 `would_not_help_pin` / `no_dep`**（probe 已證實升任何 parent
+都拉不到目標版本）→ **不要硬推 bump_parent**；此時 `dep_tree.js` 已自動把
+`add_override` 升權為推薦策略，直接走 B/JS-4 的 consent gate。
+
+**B/JS-4. `add_override`** — 走到這條代表 **target 是 transitive、package.json 沒有
+直接約束，且升 parent 無法解決**（`parent_analyses` 全為 `would_not_help_pin` /
+`no_dep`，或無 parent 可達）。**這是強制 consent gate — 必須先向使用者說明「A 無法
+升級到能解決的版本」並取得明確 `[Y]` 同意，才能寫入 override 並進入 Phase 5**。
+
+> ⚠️ 鐵則：未收到明確 `[Y]` 之前，**不得**修改 `package.json` 或進入 Phase 5。
+> `[N]` 或任何看不懂的輸入 → 停在原地、不要自行猜測或預設同意。
+
+呈現時**逐 parent 引用 `parent_analyses` 的 `status` + `reason`**，把「為什麼 A 升不上去」
+講清楚（reason 原樣展示），例如：
 
 ```
-無法保證升 {direct_parent} 一定會拉到 {package} 新版（parent 的範圍可能還是允許舊版）。
-替代方案: 在 package.json 加入 overrides/resolutions 把 {package} 釘到新版。
+⚠️ {package} 需要升到 {target_version}，但它是 transitive，且升級 parent 解決不了：
 
-對 npm:  "overrides":  {"{package}": "{new_version}"}
-對 yarn: "resolutions":{"{package}": "{new_version}"}
-對 pnpm: "pnpm": {"overrides": {"{package}": "{new_version}"}}
+  - {direct_parent}@{parent_latest} (latest) 仍要求 {package} {constraint_on_target}，
+    不含 {target_version} → 升 {direct_parent} 也拉不到 {target_version}
+  - {direct_parent_2}@{parent_latest} 已不再依賴 {package}
+  (以上為 npm view 實測；若 status=unknown 會標明「無法 probe」並降為推論)
 
-優點: 一定會生效；缺點: 繞過 parent 的相容性測試，需要在 Phase 6 跑足測試。
+也就是說：目前沒有任何已發布的 parent 版本能把 {package} 帶到 {target_version}
+——A 端「無法升級到能解決此問題的版本」。
 
-繼續嗎?
-[Y] 是, 加 override
-[N] 取消, 回到 B/JS-3 升 parent
+唯一能在 manifest 留下升級意圖的辦法是加 override 把 {package} 釘到 {target_version}:
+  對 npm:  "overrides":  {"{package}": "{target_version}"}
+  對 yarn: "resolutions":{"{package}": "{target_version}"}
+  對 pnpm: "pnpm": {"overrides": {"{package}": "{target_version}"}}
+
+缺點: 繞過 parent 的相容性測試，需要在 Phase 6 跑足測試確認 parent 在新版
+{package} 下仍正常；且 parent 日後正式升上來後要記得移除此 override。
+
+是否同意以 add_override 進行?
+[Y] 是, 我了解 A 無法升級, 同意加 override 並進入 Phase 5
+[N] 否, 取消 (不修改任何檔案)
 ```
+
+收到 `[Y]` → 標記 `upgrade_strategy = add_override`，於 Phase 5.3 寫 override 並在
+commit message 註記預期移除條件（parent 升上來後拿掉）。收到 `[N]` / 其他 → 中止。
 
 **B/JS-5. `lock_only`** — **真正的 last resort**。只在以下都成立時才允許：
 - target 不在 dependencies/devDeps/peerDeps

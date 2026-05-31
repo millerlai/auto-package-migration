@@ -115,7 +115,11 @@ $PKG_MANAGER_BIN set resolution "<pkg>@npm:<old-range>" "npm:<new-version>"
 ```
 
 > **與 `bump_parent` 的取捨**: `add_override` 一定生效但繞過 parent 的相容性
-> 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版（要驗證）。
+> 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版
+> （`dep_tree.js --target-version` 的 `parent_analyses` 會實測這點）。
+>
+> ⚠️ `add_override` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
+> 說明「parent 無法升級到能解決的版本」並取得明確 `[Y]`，才能寫入 resolutions。
 
 #### 5. `lock_only` — **last resort**，僅在 `dep_tree_js.js` 確認無 override 且無 direct parent 可達時
 
