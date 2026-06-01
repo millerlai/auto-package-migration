@@ -41,6 +41,9 @@ description: >
 - 每個步驟先用 helper script 取得結構化數據，再用你的推理能力分析
 - 在修改任何檔案之前，先備份環境
 - 測試程式的修改必須經過使用者確認
+- **push / 建 PR 前 (Phase 7.2.5)，對實際要進 PR 的 diff 再做一次風險再評估**
+  （必含被升套件的依賴樹 delta + 計畫外 transitive 變動 + 專案風險），
+  並在 Phase 7.3.1 / 7.5.4 貼成**獨立**的 PR / Jira comment
 - 完成後建立 Pull Request 供 review
 - 全程保持可回退
 - **若觸發來源是 Jira ticket** (Phase 1 情況 C)，在整個 session 中保留
@@ -2477,6 +2480,126 @@ Diff: https://github.com/beaugunderson/ip-address/compare/v10.1.0...v10.2.0
 讓 commit log (`git log --oneline`) 可掃描的關鍵。72 字元上限以 description
 本身計算 (不含 `[KEY] ` 前綴)。
 
+### Step 7.2.5: PR Diff 風險再評估（push 前必跑）
+
+> 目的：Phase 2–4 的風險分析是對「**計畫**要做的升級」做的；這一步是對「**實際**要進
+> PR 的 diff」再驗一次。lockfile resolver 經常連帶動到計畫外的 transitive 套件，這些
+> 只有在升級**實際做完**後才看得到。這份再評估是 push 前最後一道把關，也會在 Phase 7.3
+> / 7.5.4 貼成**獨立**的 PR / Jira comment（與遷移報告分開）。
+
+#### 7.2.5.1: 取得實際 diff
+
+先找出 fork 點（Phase 5.1 的 branch 從哪個 base 切出來），再看實際 diff：
+
+```bash
+# default_branch 用 Phase 0 / git 偵測到的主幹 (常見 main / master)
+BASE="$(git merge-base HEAD "origin/<default_branch>" 2>/dev/null \
+        || git merge-base HEAD "<default_branch>")"
+git diff --stat "$BASE"...HEAD          # 總體 blast radius
+# 只看依賴宣告檔與 lockfile 的完整 diff — 這是 transitive 變化的真相來源
+git diff "$BASE"...HEAD -- <manifest+lock globs，依語言見下>
+```
+
+manifest / lock globs（依 `language`）：
+- **Python**: `pyproject.toml requirements*.txt poetry.lock uv.lock Pipfile.lock`
+- **JS**: `package.json **/package.json yarn.lock package-lock.json pnpm-lock.yaml`
+- **Go**: `go.mod go.sum go.work go.work.sum vendor/modules.txt`
+
+#### 7.2.5.2: 重跑被升級套件的 dependency tree 分析（**必做，不可省略**）
+
+對 target 套件在**升級後**的狀態重跑 dep_tree（與 Phase 2.1 同一支 script），和
+Phase 2.1 在 session 中保留的**升級前**輸出做 delta：
+
+```bash
+# Python
+python scripts/python/dep_tree.py <project_path> <package_name>
+# JavaScript
+node scripts/javascript/dep_tree.js <project_path> <package_name>
+# Go
+bash scripts/go/dep_tree.sh <project_path> <module_path>
+```
+
+逐欄比對（pre = Phase 2.1 輸出，post = 這次輸出）：
+
+| 欄位 | 要看什麼 |
+|---|---|
+| `current_version` | 確認確實升到目標版本（沒被 resolver 卡在舊版 / 拉過頭） |
+| `parent_packages` | 有沒有新增 / 消失的 direct parent；transitive↔direct 的轉變 |
+| `version_constraints` | 各 parent 約束是否仍滿足新版；有沒有 parent 被迫一起升 |
+| `full_tree` | target 子樹裡新增 / 移除 / 版本變動的 transitive 套件 |
+
+再把「target 子樹**之外**」的 transitive 變化從 7.2.5.1 的 lockfile diff 撈出來 —
+這些是 resolver 連帶動到、計畫外的套件，逐一標出新增 / 移除 / 版本跳躍
+（**特別留意 major version bump**）。
+
+#### 7.2.5.3: 專案風險分析
+
+綜合以下面向，給出整體風險等級（🟢 低 / 🟡 中 / 🔴 高）：
+
+- **Blast radius**：改了幾個檔案、Phase 4 找到的 call site 是否都已覆蓋
+- **計畫外的依賴變動**：7.2.5.2 撈出的非預期 transitive bump（尤其 major jump = 🔴）
+- **殘留 breaking change**：Phase 3 列出的 BC 是否都已處理；有無 deferred 項
+- **測試覆蓋**：Phase 6 結果 — 受影響程式是否有測試涵蓋；有無跳過 / 失敗的測試
+- **驗證降級**：本次有沒有走 fallback（lockfile-only、缺 govulncheck / apidiff、
+  auth fallback 等 Phase 0.3 / Phase 5 標記的降級）
+- **(Go) reachability**、**(JS) runtime regression** 若有跑，一併納入
+
+#### 7.2.5.4: 產出再評估報告 + 落檔
+
+寫一份**獨立**的「PR Risk Re-assessment」報告（**不要**併進 Phase 7.1 遷移報告），結構：
+
+```markdown
+## 🔍 PR Risk Re-assessment
+
+**Overall risk**: 🟢 Low / 🟡 Medium / 🔴 High
+**Package**: `{package}` `{old_version}` → `{new_version}`
+**Base**: `{base_sha[:12]}` → `{head_sha[:12]}`  |  Files changed: {N}
+
+### Dependency Tree Delta（{package}）
+- target version: `{old}` → `{new}` ✅
+- parent 變化: {新增 / 消失 / 無變化}
+- 子樹 transitive 變化: {逐條，版本 old→new}
+
+### 計畫外的依賴變動
+- `{pkg}`: `{old}` → `{new}`  ⚠️ major jump / patch only
+- ...（無則寫「無 — lockfile 僅含預期內變動」）
+
+### 專案風險
+- Blast radius: {files} 檔、{call_sites} 處
+- 殘留 breaking change: {none / 列出}
+- 測試: {pass/fail, coverage note}
+- 驗證降級: {none / 列出}
+
+### Verdict
+{1–3 句：可否安全 merge，reviewer 要特別看哪裡}
+```
+
+落檔（沿用 Phase 7.1.1 的 canonical 慣例）：
+
+```bash
+# 寫到 <project>/.package-upgrade-cache/pr-risk-reassessment.md
+```
+
+#### 7.2.5.5: 確認點 — push 前把關
+
+> push / 建 PR 前最後一道 gate。若再評估浮出 🔴 高風險（計畫外 major bump、殘留未處理
+> BC、測試未覆蓋），先讓使用者決定，不要逕自 push。
+
+```
+PR 風險再評估完成（overall: {risk}）：
+---
+{re-assessment 報告預覽}
+---
+
+接下來會 push 並建立 PR,再把這份報告貼成獨立的 PR comment{若有 jira_context: 與 Jira comment}。
+
+[Y] 繼續 push + 建 PR
+[E] 我想先看完整 diff / 調整
+[N] 先不要 push (保留本機 branch)
+```
+
+🔴 高風險時預設不催促繼續，明確請使用者確認。
+
 ### Step 7.3: 建立 Pull Request
 
 將所有變更 commit 後,建立 Pull Request:
@@ -2561,6 +2684,25 @@ PR 內容應包含:
 - Phase 7.1 產生的完整遷移報告作為 PR description (接在 Jira link 之後)
 - 標記為 `dependencies` / `security` label (如果是 CVE 修復)
 - 指定 reviewers (如有需要)
+
+### Step 7.3.1: 貼上 PR 風險再評估 comment（獨立 comment）
+
+PR **建立成功後**，把 Step 7.2.5 的再評估報告貼成一則**獨立** PR comment
+（與 PR body 的遷移報告分開呈現）：
+
+```bash
+gh pr comment "<pr_url>" --body-file <project>/.package-upgrade-cache/pr-risk-reassessment.md
+```
+
+**`gh` 未認證 / GHE / push-only fallback**（沿用 Step 7.3 的處理）：無法自動貼時，
+**不要放棄**——把 `pr-risk-reassessment.md` 路徑高亮給使用者，提示手動貼到 PR comment：
+
+```
+📋 PR risk re-assessment saved to: <project>/.package-upgrade-cache/pr-risk-reassessment.md
+   (pbcopy < … 後貼到 PR comment 區)
+```
+
+commit / push 已完成，貼 comment 失敗不 block 後續流程。
 
 ### Step 7.4: Jira 整合 — 條件門檻
 
@@ -2677,6 +2819,17 @@ ATLASSIAN_EMAIL=... ATLASSIAN_API_TOKEN=... \
 若 post 失敗 → 不要重試自動,把組好的 comment body 完整輸出給使用者,告知失敗原因,
 讓使用者決定是手動貼上還是放棄。**繼續到 7.6** (post 失敗不 block transition,但會在
 prompt 中如實告知)。
+
+### Step 7.5.4: 將 PR 風險再評估貼成獨立 Jira comment
+
+7.5（遷移報告 comment）成功後，把 Step 7.2.5 的再評估報告**另外**貼成一則**獨立**
+Jira comment（受 Step 7.4 同一條件門檻管制，用 `jira_context.auth_mode` 同一機制）。
+
+**避免重複 prompt**：在 7.5.2 的確認點就**一次預覽兩則 comment**（遷移報告 + PR 風險
+再評估），使用者選 `[Y]` 時 **7.5.3 與 7.5.4 一起 post**。comment body 取
+`pr-risk-reassessment.md`，第一行同樣放 `🔗 **PR**: {pr_url}`（對稱 7.5.1）。
+
+post 失敗的處理同 7.5.3：不自動重試，輸出完整 body 給使用者自行決定，不 block 7.6。
 
 ### Step 7.6: 依目前狀態推進 Jira ticket
 
@@ -2904,8 +3057,9 @@ go mod vendor
 | Phase 4.4: 程式碼修改預覽 | 完整 diff + 每處修改的理由 |
 | Phase 5.1: 建立 Git 分支 | 分支名稱、即將開始修改 |
 | Phase 6.4: 測試程式修改 | 為什麼要改 + 改後仍驗證什麼 |
+| Phase 7.2.5: PR diff 風險再評估 (push 前把關) | 再評估報告預覽 (含依賴樹 delta + 計畫外變動 + overall risk),🔴 高風險不催促繼續 |
 | Phase 7.3: 建立 Pull Request | PR 資訊、是否建立 PR |
 | Phase 7.5.1: pr_url 缺漏時 abort comment | 哪一步沒做完 (push 失敗 / 沒建 PR) → 回 Phase 7.3 |
-| Phase 7.5.2: 將報告 Comment 回 Jira | comment 預覽 (第一行必為 PR URL) + ticket URL |
+| Phase 7.5.2: 將報告 Comment 回 Jira | 一次預覽兩則 comment (遷移報告 + PR 風險再評估,第一行皆為 PR URL) + ticket URL,[Y] 一起 post |
 | Phase 7.6.3: Jira 中間態 transition (TODO→Ready for Work / Ready for Work→Development) | 目前狀態 + 中間目標,絕不自動執行 |
 | Phase 7.6.4: 是否將 Jira status 轉為 Done | 目標狀態 + 目前狀態,絕不自動執行 |
