@@ -1,7 +1,7 @@
 # Python Override Semantics — pin transitive 不改 parent 的四種寫法
 
 > 這份文件統整 pip / poetry / uv 三種工具強制升降 transitive dependency 的語法與
-> 約束。Phase 2 在挑選策略 `bump_override` 時應引用本檔。對應 Go 的
+> 約束。Phase 2 在挑選策略 `pin_add` / `pin_update` / `pin_source` 時應引用本檔。對應 Go 的
 > `../go/replace_semantics.md`，但 Python 生態更分歧。
 
 ---
@@ -140,15 +140,15 @@ my-fork = { git = "https://github.com/me/forked.git", rev = "abcdef" }
 
 | 偵測情境 | 推薦工具 | 推薦語法 | 對應 SKILL.md 策略 |
 |----------|----------|----------|---------------------|
-| Pip / pip-tools，有 lockfile | pip-tools | `requirements.in` + `-c constraints.txt` | `bump_override` |
-| Pip 無 lockfile（手動裝） | pip + 文件 | `pip install --constraint constraints.txt -r requirements.txt` | `bump_override` |
-| Poetry | poetry | `[tool.poetry.dependencies]` 加一行 | `bump_override` |
-| Poetry 1.5+，想分群 | poetry | `[tool.poetry.group.security.dependencies]` | `bump_override` |
-| uv，已知 fix 版本 | uv | `[tool.uv] override-dependencies` | `bump_override` |
-| uv，僅範圍 hint | uv | `[tool.uv] constraint-dependencies` | `bump_override` |
-| 套件官方無 fix release，需 fork | poetry / uv | `[tool.poetry.source]` 或 `[tool.uv.sources]` git+ | `add_source_override` |
+| Pip / pip-tools，有 lockfile | pip-tools | `requirements.in` + `-c constraints.txt` | `pip-constraints`→`pin_add`/`pin_update` |
+| Pip 無 lockfile（手動裝） | pip + 文件 | `pip install --constraint constraints.txt -r requirements.txt` | `pip-constraints`→`pin_add`/`pin_update` |
+| Poetry | poetry | `[tool.poetry.dependencies]` 加一行 | `poetry-dep`→`pin_add`/`pin_update` |
+| Poetry 1.5+，想分群 | poetry | `[tool.poetry.group.security.dependencies]` | `poetry-group`→`pin_add`/`pin_update` |
+| uv，已知 fix 版本 | uv | `[tool.uv] override-dependencies` | `uv-override`→`pin_add`/`pin_update` |
+| uv，僅範圍 hint | uv | `[tool.uv] constraint-dependencies` | `uv-constraint`→`pin_add`/`pin_update` |
+| 套件官方無 fix release，需 fork | poetry / uv | `[tool.poetry.source]` 或 `[tool.uv.sources]` git+ | `uv-source`→`pin_source` |
 
-`add_source_override` 是 Python 版的 `add_replace`（Go），新策略名建議在 Phase 2 加入。
+`pin_source` 是 Python 版對應 Go 的 fork-`replace`：策略名取決於 manifest 是否已有既有 pin（無→`pin_add`、已有版本 pin→`pin_update`、換來源→`pin_source`）。
 
 ---
 
@@ -198,4 +198,4 @@ my-fork = { git = "https://github.com/me/forked.git", rev = "abcdef" }
 Go 有 `../go/replace_semantics.md` 統整 replace 語意，但 Python 對應的 override 知識散落
 在 `pip_workflow.md` / `poetry_workflow.md` / `uv_workflow.md`，使用者要在三個檔案間
 跳。本文件統整 Python 三套工具的 override 寫法，並對應到 Phase 2 策略表，
-讓 `bump_override` 策略可被機械化選擇（TODO.md 任務 2.2）。
+讓 `pin_add` / `pin_update` / `pin_source` 策略可被機械化選擇（TODO.md 任務 2.2）。

@@ -151,7 +151,7 @@ Skill 會在以下時間點暫停等你確認、不會自動執行：
 
 1. Jira ticket 解析結果（package / 版本 / 驗收條件）— 僅 Jira 觸發
 2. Pre-flight 偵測到 blocker（缺 token、git tree 不乾淨等）
-3. Phase 2 升級策略選擇（direct_bump / bump_override / bump_parent / lock_only / add_replace 等）
+3. Phase 2 升級策略選擇（direct_bump / lock_only / bump_parent / pin_add / pin_update / pin_source 等，Go 另有 bump_indirect / major_version_rewrite）
 4. Pip lock 檔案產生方式
 5. Go major version jump 的 import path rewrite 預覽
 6. Phase 4 程式碼修改 unified diff

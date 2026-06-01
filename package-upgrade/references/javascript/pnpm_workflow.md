@@ -62,7 +62,7 @@ $PKG_MANAGER_BIN up <pkg>@<range>
 $PKG_MANAGER_BIN add <pkg>@<version>
 ```
 
-#### 2. `bump_override` — target 在 `pnpm.overrides` 已被釘版
+#### 2. `pin_update` — target 在 `pnpm.overrides` 已被釘版
 
 直接編輯 `package.json` 把對應 entry 的 value 改成新版本：
 
@@ -93,7 +93,7 @@ $PKG_MANAGER_BIN add <direct-parent>@<new-range>
 升完 parent 後，pnpm 會把新版的 target 一併解析寫入 lockfile。Phase 6 跑足測試
 確認 parent 的新版本沒帶來其他 breaking。
 
-#### 4. `add_override` — `bump_parent` 不適用 / 不夠精確時
+#### 4. `pin_add` — `bump_parent` 不適用 / 不夠精確時
 
 在 `package.json` 加 `pnpm.overrides`（注意是 nested 在 `pnpm:` 區塊下）：
 
@@ -126,11 +126,11 @@ $PKG_MANAGER_BIN add <direct-parent>@<new-range>
 $PKG_MANAGER_BIN install --lockfile-only
 ```
 
-> **與 `bump_parent` 的取捨**：`add_override` 一定生效但繞過 parent 的相容性
+> **與 `bump_parent` 的取捨**：`pin_add` 一定生效但繞過 parent 的相容性
 > 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版
 > （`dep_tree.js --target-version` 的 `parent_analyses` 會實測這點）。
 >
-> ⚠️ `add_override` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
+> ⚠️ `pin_add` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
 > 說明「parent 無法升級到能解決的版本」並取得明確 `[Y]`，才能寫入 pnpm.overrides。
 
 #### 5. `lock_only` — **last resort**

@@ -583,13 +583,13 @@ class TestComposeStrategies:
         blocked = next(s for s in bumps if s["parent"] == "django")
         assert satisfies["confidence"] > blocked["confidence"]
 
-    def test_fallback_bump_parent_then_target_when_nothing_else(self):
+    def test_fallback_pin_add_when_nothing_else_dup(self):
         # transitive, no lockfile, no parent_analyses → final fallback fires
         cls = self._transitive(["flask"], {})
         strats = dep_tree.compose_strategies(
             cls, parent_analyses=[], has_lockfile=False, target_version=None
         )
-        assert strats[0]["type"] == "bump_parent_then_target"
+        assert strats[0]["type"] == "pin_add"
 
     def test_unknown_when_classification_empty(self):
         cls = {

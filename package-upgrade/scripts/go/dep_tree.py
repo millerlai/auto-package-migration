@@ -670,8 +670,16 @@ def walk_parents(
 
 
 def compose_strategies(ctx: dict) -> list[dict]:
-    """Build candidate strategies, each with a `confidence` 0..1.
+    """Build candidate strategies, each with a `confidence` 0..1 and a
+    `mechanism` (go-get / go-replace / go-indirect).
     The list is returned sorted by confidence descending.
+
+    Canonical strategy `type` values (aligned with dep_tree.py / dep_tree_js.js):
+        direct_bump, bump_parent, bump_indirect, pin_add, pin_update,
+        pin_source, major_version_rewrite. `pin_add` / `pin_update` /
+        `pin_source` all manifest as a go.mod `replace` directive; which one
+        fires depends on whether a replace already exists and whether it
+        redirects the module path (fork) vs only the version.
 
     Signals consumed (all optional — missing signals leave confidence at default):
         - go_mod_why_status: "needed" | "not_needed_by_main_module"
@@ -704,6 +712,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
         s.append(
             {
                 "type": "major_version_rewrite",
+                "mechanism": "go-get",
                 "confidence": 0.95,
                 "rationale": (
                     f"Target version {target_version} is a major-version jump "
@@ -727,6 +736,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
         s.append(
             {
                 "type": "direct_bump",
+                "mechanism": "go-get",
                 "confidence": 0.95,
                 "rationale": (
                     f"Target is a direct dependency in go.mod ({current_ver}). "
@@ -746,6 +756,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
             analysis = analyses_by_name.get(p)
             strat: dict = {
                 "type": "bump_parent",
+                "mechanism": "go-get",
                 "target": p,
                 "apply_hint": (
                     f"go get {p}@latest && go mod tidy  " f"# then verify {target_base} got bumped"
@@ -828,6 +839,7 @@ def compose_strategies(ctx: dict) -> list[dict]:
     if is_indirect:
         bump_indirect_strat: dict = {
             "type": "bump_indirect",
+            "mechanism": "go-indirect",
             "apply_hint": f"go get {current_path}@{tv} && go mod tidy",
         }
         if not_on_build_path:
@@ -851,53 +863,132 @@ def compose_strategies(ctx: dict) -> list[dict]:
             )
         s.append(bump_indirect_strat)
 
-    # 5. add_replace — boosted when not_on_build_path or no parent will help
+    # 5. replace-directive path — canonical pin_add / pin_update / pin_source.
+    #    Both carry mechanism=go-replace. Which one fires depends on whether a
+    #    replace ALREADY exists for the target and whether it redirects the
+    #    module path (a fork) versus just changing the version:
+    #      - existing replace pointing at a different path → pin_source
+    #      - existing replace, same path, version change   → pin_update
+    #      - no existing replace, version change           → pin_add
+    #    A low-confidence pin_source fork fallback is always offered too.
     if dep_type != "not_present":
         replace_warning = (
             "Replace directives are LOCAL to your module — downstream consumers "
             "do NOT inherit them. Use only for emergency patches, missing upstream "
             "fixes, or pointing at a fork."
         )
-        if has_replace:
-            replace_warning = "Existing replace directive present; " + replace_warning
+
+        replace_dir = ctx.get("replace_directive") or {}
+        existing_new_path = replace_dir.get("new", "")
+        existing_redirects_path = bool(
+            has_replace
+            and existing_new_path
+            and strip_major_suffix(existing_new_path) != target_base
+        )
 
         # Compute boost conditions
         any_parent_satisfies = any(a.get("status") == "satisfies" for a in parent_analyses)
-        add_replace_strat: dict = {
-            "type": "add_replace",
-            "patch_hint": (
-                f"// In go.mod\nreplace {current_path or target_base} => "
-                f"{current_path or target_base} {tv}"
-            ),
-            "warning": replace_warning,
-        }
-        if not_on_build_path:
-            add_replace_strat["confidence"] = 0.85
-            add_replace_strat["rationale"] = (
-                "Target is indirect AND not on build path "
-                "(`go mod why`: not needed). `go mod tidy` will drop "
-                "`bump_indirect`/`bump_parent` results, but `replace` survives. "
-                "See references/go_replace_semantics.md."
-            )
-        elif is_indirect and not any_parent_satisfies and parent_analyses:
-            add_replace_strat["confidence"] = 0.70
-            add_replace_strat["rationale"] = (
-                "No direct parent's latest version brings the desired target "
-                "version. Adding a `replace` directive is the most reliable "
-                "way to force the upgrade. " + replace_warning
-            )
+
+        if existing_redirects_path:
+            # Existing replace points the target at a different path (fork).
+            pin_source_strat: dict = {
+                "type": "pin_source",
+                "mechanism": "go-replace",
+                "patch_hint": (
+                    f"// In go.mod (existing fork redirect)\nreplace "
+                    f"{current_path or target_base} => {existing_new_path} <ref/version>"
+                ),
+                "current_value": (
+                    f"{existing_new_path} {replace_dir.get('new_version', '')}".strip()
+                ),
+                "warning": "Existing fork replace present; " + replace_warning,
+                "rationale": (
+                    "Target is already redirected to a fork / different path via an "
+                    "existing `replace`. Update that source redirect to the ref/version "
+                    "carrying the fix. " + replace_warning
+                ),
+            }
+            pin_source_strat["confidence"] = 0.85 if not_on_build_path else 0.70
+            s.append(pin_source_strat)
+        elif has_replace:
+            # Existing replace, same path → bump its version.
+            pin_update_strat: dict = {
+                "type": "pin_update",
+                "mechanism": "go-replace",
+                "patch_hint": (
+                    f"// In go.mod (update existing replace)\nreplace "
+                    f"{current_path or target_base} => {current_path or target_base} {tv}"
+                ),
+                "current_value": (
+                    f"{existing_new_path or (current_path or target_base)} "
+                    f"{replace_dir.get('new_version', '')}".strip()
+                ),
+                "warning": "Existing replace directive present; " + replace_warning,
+                "rationale": (
+                    "An existing `replace` pins the target's version. Update that "
+                    "directive to the desired version. " + replace_warning
+                ),
+            }
+            pin_update_strat["confidence"] = 0.85 if not_on_build_path else 0.70
+            s.append(pin_update_strat)
         else:
-            add_replace_strat["confidence"] = 0.20
-            add_replace_strat["rationale"] = (
-                "Last resort: add a `replace` directive to pin the target. " + replace_warning
+            # No existing replace → add a new one (canonical pin_add).
+            pin_add_strat: dict = {
+                "type": "pin_add",
+                "mechanism": "go-replace",
+                "patch_hint": (
+                    f"// In go.mod\nreplace {current_path or target_base} => "
+                    f"{current_path or target_base} {tv}"
+                ),
+                "warning": replace_warning,
+            }
+            if not_on_build_path:
+                pin_add_strat["confidence"] = 0.85
+                pin_add_strat["rationale"] = (
+                    "Target is indirect AND not on build path "
+                    "(`go mod why`: not needed). `go mod tidy` will drop "
+                    "`bump_indirect`/`bump_parent` results, but `replace` survives. "
+                    "See references/go_replace_semantics.md."
+                )
+            elif is_indirect and not any_parent_satisfies and parent_analyses:
+                pin_add_strat["confidence"] = 0.70
+                pin_add_strat["rationale"] = (
+                    "No direct parent's latest version brings the desired target "
+                    "version. Adding a `replace` directive is the most reliable "
+                    "way to force the upgrade. " + replace_warning
+                )
+            else:
+                pin_add_strat["confidence"] = 0.20
+                pin_add_strat["rationale"] = (
+                    "Last resort: add a `replace` directive to pin the target. " + replace_warning
+                )
+            s.append(pin_add_strat)
+
+            # Low-confidence fork fallback: point the target at a fork when no
+            # published version carries the fix. Mirrors dep_tree.py pin_source.
+            s.append(
+                {
+                    "type": "pin_source",
+                    "mechanism": "go-replace",
+                    "confidence": 0.10,
+                    "patch_hint": (
+                        f"// In go.mod (fork)\nreplace {current_path or target_base} => "
+                        "github.com/<your-fork>/... <ref>"
+                    ),
+                    "warning": replace_warning,
+                    "rationale": (
+                        "If no published version carries the fix, redirect the target to "
+                        "a fork via a `replace` pointing at a different path. " + replace_warning
+                    ),
+                }
             )
-        s.append(add_replace_strat)
 
     # not_present + target_version → recommend adding it as direct dep
     if dep_type == "not_present" and target_version:
         s.append(
             {
                 "type": "direct_bump",
+                "mechanism": "go-get",
                 "confidence": 0.95,
                 "rationale": (
                     f"Target {target_base} is not currently in go.mod. `go get` "

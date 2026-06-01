@@ -63,7 +63,7 @@ $PKG_MANAGER_BIN dedupe                  # recursive update lockfile
 $PKG_MANAGER_BIN up <pkg>@<range>
 ```
 
-#### 2. `bump_override` — target 在 `resolutions` (yarn 慣例) 已被釘版
+#### 2. `pin_update` — target 在 `resolutions` (yarn 慣例) 已被釘版
 
 直接編輯 `package.json` 把對應 entry 的 value 改成新版本：
 
@@ -91,7 +91,7 @@ $PKG_MANAGER_BIN up <direct-parent>@<latest-or-range>
 升完後，parent 自己的 `dependencies` 會拉新版的 target。記得在 Phase 6 跑足測試
 確認 parent 的新版本沒帶來其他 breaking。
 
-#### 4. `add_override` — `bump_parent` 不適用 / 不夠精確時的替代
+#### 4. `pin_add` — `bump_parent` 不適用 / 不夠精確時的替代
 
 在 `package.json` 加 `resolutions` (yarn 是這個鍵)：
 
@@ -114,11 +114,11 @@ $PKG_MANAGER_BIN install --mode update-lockfile
 $PKG_MANAGER_BIN set resolution "<pkg>@npm:<old-range>" "npm:<new-version>"
 ```
 
-> **與 `bump_parent` 的取捨**: `add_override` 一定生效但繞過 parent 的相容性
+> **與 `bump_parent` 的取捨**: `pin_add` 一定生效但繞過 parent 的相容性
 > 測試；`bump_parent` 安全但 parent 的新版本不一定真的會拉到 target 新版
 > （`dep_tree.js --target-version` 的 `parent_analyses` 會實測這點）。
 >
-> ⚠️ `add_override` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
+> ⚠️ `pin_add` 是**強制 consent gate**：必須先依 SKILL.md B/JS-4 向使用者
 > 說明「parent 無法升級到能解決的版本」並取得明確 `[Y]`，才能寫入 resolutions。
 
 #### 5. `lock_only` — **last resort**，僅在 `dep_tree_js.js` 確認無 override 且無 direct parent 可達時
