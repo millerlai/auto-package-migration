@@ -230,8 +230,16 @@ else
     if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
         echo -e "${YELLOW}缺少依賴: ${MISSING_DEPS[*]}${NC}"
         if confirm "是否安裝? (y/N) " y; then
-            $PY -m pip install "${MISSING_DEPS[@]}"
-            echo -e "${GREEN}✓ 依賴已安裝${NC}"
+            # Fall back to --user when the Python is externally managed (PEP 668).
+            if $PY -m pip install "${MISSING_DEPS[@]}"; then
+                echo -e "${GREEN}✓ 依賴已安裝${NC}"
+            elif $PY -m pip install --user "${MISSING_DEPS[@]}"; then
+                echo -e "${GREEN}✓ 依賴已安裝 (--user)${NC}"
+            else
+                echo -e "${YELLOW}⚠ 自動安裝失敗 (可能是 PEP 668)。請在 venv 內或手動安裝:${NC}"
+                echo "    $PY -m pip install ${MISSING_DEPS[*]}"
+                echo "    $PY -m pip install --user ${MISSING_DEPS[*]}"
+            fi
         else
             echo -e "${YELLOW}⚠ 跳過依賴安裝,稍後請手動執行:${NC}"
             echo "  $PY -m pip install ${MISSING_DEPS[*]}"

@@ -203,12 +203,6 @@ def parse_gomod(path: str) -> dict:
     if m:
         out["toolchain"] = m.group(1)
 
-    def parse_require_line(line: str) -> tuple[str, str, bool] | None:
-        line = line.split("//")[0].rstrip()
-        _is_indirect = "// indirect" in (line + " ")  # we stripped already
-        # Better: check the original
-        return line
-
     # Tokenize require statements (both single-line and block form)
     def iter_require_entries():
         # Single-line: `require <path> <ver> [// indirect]`

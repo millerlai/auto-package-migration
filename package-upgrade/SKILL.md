@@ -102,7 +102,8 @@ bash scripts/python/detect_env.sh <project_path>
 - `memory_hints`: 例 `["private_registry", "poetry_source", "pip_extra_index", "non_default_remote"]`
 
 根據偵測到的 pkg_manager，讀取對應的 references 文件:
-- pip → 讀 `references/python/pip_workflow.md`
+- pip → 讀 `references/python/pip_workflow.md`；專案若用 `requirements.in` / 自訂
+  `*.lock` 等 pip lock 變體，另讀 `references/python/pip_lock_patterns.md` 判斷該編輯哪個檔
 - poetry → 讀 `references/python/poetry_workflow.md`
 - uv → 讀 `references/python/uv_workflow.md`
 
@@ -754,6 +755,10 @@ python scripts/python/dep_tree.py <project_path> <package_name> \
 每個 direct parent 呼叫 PyPI JSON API 取 `info.requires_dist`，分類為
 `satisfies` / `would_not_help_pin` / `no_dep` / `unknown`，並把每條候選策略
 （`direct_bump` / `lock_only` / `bump_parent` per parent / `pin_add` / `pin_update` / `pin_source`）
+依 confidence 排序輸出在 `upgrade_strategies[]`，第一名同步寫到 `recommended_strategy`
+（schema 對齊 `dep_tree.js` / `dep_tree_go.py`，且**永遠非空** — 無法分類時以終結性的
+`unknown` 策略收尾）。未提供 `--target-version` 時 `parent_analyses` 為空、策略 fallback
+為僅依 `dependency_type` 判斷。
 
 #### Canonical type ↔ mechanism ↔ 情境 對照表（單一真實來源）
 

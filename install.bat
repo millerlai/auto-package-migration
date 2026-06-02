@@ -179,7 +179,17 @@ if not defined PYTHON_CMD (
         if /i not "!ASSUME_YES!"=="true" set /p "REPLY=是否安裝? (y/N) "
         if /i "!REPLY!"=="y" (
             !PYTHON_CMD! -m pip install !MISSING_DEPS!
-            echo %GREEN%✓ 依賴已安裝%NC%
+            REM Fall back to --user if the system Python refuses (PEP 668 etc.)
+            if errorlevel 1 (
+                echo %YELLOW%重試 --user...%NC%
+                !PYTHON_CMD! -m pip install --user !MISSING_DEPS!
+            )
+            if errorlevel 1 (
+                echo %YELLOW%⚠ 自動安裝失敗。請在 venv 內或手動執行:%NC%
+                echo   !PYTHON_CMD! -m pip install !MISSING_DEPS!
+            ) else (
+                echo %GREEN%✓ 依賴已安裝%NC%
+            )
         ) else (
             echo %YELLOW%⚠ 跳過依賴安裝,稍後請手動執行:%NC%
             echo   !PYTHON_CMD! -m pip install!MISSING_DEPS!

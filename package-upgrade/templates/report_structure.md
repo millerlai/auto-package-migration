@@ -93,6 +93,40 @@ All 47 tests passed after modifications.
 
 ---
 
+### 2.5 Breaking Change 分析來源 / Provenance (必填)
+
+**目的**: 證明 Phase 3 三軌分析實際跑過 — 即使**沒有任何 breaking change**，這一節
+也必須在,讓 reviewer (與 `verify_provenance.sh` gate) 看得到來源。每一軌都要落地:
+Changelog URL 或 NOT_FOUND、Git diff 的 compare URL / commit SHA、API surface diff
+的 `confidence_score` 或明確的 none/degraded 註記。
+
+**格式建議**:
+```markdown
+## Breaking Change 分析來源
+
+### 📚 Changelog 來源
+- 來源類型: GitHub Releases API
+- URL: https://github.com/psf/requests/releases
+- 狀態: ✅ 找到
+
+### 🔬 Git Diff 雙軌分析
+- Repository: https://github.com/psf/requests
+- 舊版本: `2.28.0` → tag `v2.28.0` → commit `abc123def456`
+- 新版本: `2.32.0` → tag `v2.32.0` → commit `789012345678`
+- Compare URL: https://github.com/psf/requests/compare/v2.28.0...v2.32.0
+
+### 🔧 API Surface Diff 來源
+- 策略: ts-morph (.d.ts) / griffe (py) / apidiff (go) / none
+- confidence_score: 0.95
+- 狀態: ✅ 跑過 (removed=1, changed=2, deprecated_new=0)
+  # 工具不可用時改寫: 狀態: ⚠️ none/degraded — 走 Git diff + Changelog 雙軌
+```
+
+> 即使三軌都顯示 **0 breaking changes**,仍寫出本節 (狀態各自標 ✅,confidence_score
+> 照填) — 不要因為「沒有 BC」就整段省略,否則 provenance gate 會誤判分析沒跑。
+
+---
+
 ### 3. Breaking Changes (核心章節)
 
 **目的**: 詳細記錄所有 breaking changes,按影響程度排序
@@ -376,7 +410,9 @@ utilized latin-1 encoding to...
 
 ## 完整範例
 
-參考 [package-upgrade-agent-architecture.md](../package-upgrade-agent-architecture.md) § 3 Phase 7 中的報告範例。
+完整的報告範例見 `SKILL.md` Phase 7 (Step 7.1 遷移報告) — 上面各節 (References →
+Executive Summary → 分析來源 → Breaking Changes → 程式碼修改 → 測試結果 → 後續建議 →
+回退指南) 串起來就是一份完整報告。
 
 ---
 

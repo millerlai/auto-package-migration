@@ -171,11 +171,23 @@ fi
 if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "${YELLOW}缺少依賴: ${MISSING_DEPS[*]}${NC}"
     if confirm "是否安裝? (y/N) " y; then
-        pip install "${MISSING_DEPS[@]}"
-        echo -e "${GREEN}✓ 依賴已安裝${NC}"
+        # Use `python3 -m pip`, and fall back to --user when the system Python
+        # is externally managed (PEP 668: Debian/Ubuntu/Homebrew refuse a plain
+        # `pip install` outside a venv). Give actionable guidance if both fail.
+        if python3 -m pip install "${MISSING_DEPS[@]}"; then
+            echo -e "${GREEN}✓ 依賴已安裝${NC}"
+        elif python3 -m pip install --user "${MISSING_DEPS[@]}"; then
+            echo -e "${GREEN}✓ 依賴已安裝 (--user)${NC}"
+        else
+            echo -e "${YELLOW}⚠ 自動安裝失敗 (可能是 PEP 668 externally-managed-environment)。${NC}"
+            echo -e "${YELLOW}  請在 venv 內、或用下列任一方式手動安裝:${NC}"
+            echo "    python3 -m pip install ${MISSING_DEPS[*]}"
+            echo "    python3 -m pip install --user ${MISSING_DEPS[*]}"
+            echo "    uv pip install ${MISSING_DEPS[*]}   # 或 pipx"
+        fi
     else
         echo -e "${YELLOW}⚠ 跳過依賴安裝,稍後請手動執行:${NC}"
-        echo "  pip install ${MISSING_DEPS[*]}"
+        echo "  python3 -m pip install ${MISSING_DEPS[*]}"
     fi
 else
     echo -e "${GREEN}✓ 所有依賴已安裝${NC}"
