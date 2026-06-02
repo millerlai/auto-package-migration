@@ -110,6 +110,20 @@ bash verify_installation.sh
 
 The JS helpers (`scripts/javascript/dep_tree.js`, `scripts/javascript/api_surface_diff.js`, etc.) have their **own** `package.json` at `package-upgrade/scripts/javascript/package.json` — `install.sh` runs `npm install` inside that directory. `package-upgrade/scripts/javascript/node_modules/` is gitignored.
 
+## Git / branching
+
+**Create the branch before you touch any code** — branch first, then edit. Don't make changes on whatever branch you happen to be on and create the branch only at commit time.
+
+**Always create new branches from the latest `master`** — never off another in-progress / unmerged feature branch. Fetch first, at the *start* of the work:
+
+```bash
+git fetch origin
+git switch -c <new-branch> origin/master
+# only now start editing
+```
+
+Branching off an unmerged branch makes the PR carry that branch's commits and invites conflicts when `master` advances independently. If you genuinely need to stack on another branch, make the base explicit and intentional.
+
 ## Architecture you need before editing
 
 ### The repo is the skill source, not the skill
