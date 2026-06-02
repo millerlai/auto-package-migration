@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -30,8 +31,23 @@ except ImportError:
     print("ERROR: requests not installed. Run: pip install requests", file=sys.stderr)
     sys.exit(2)
 
+# A plain DNS hostname only. The API token is attached to every request, so the
+# host must be trusted: reject scheme/path/userinfo/port tricks (e.g.
+# "evil.com/x", "real@evil.com", "host:6379") and IP-literal / localhost
+# targets that would turn an attacker-influenced <site_host> into SSRF.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+)
+
+
+def validate_site(site: str) -> str:
+    if not isinstance(site, str) or not _HOSTNAME_RE.match(site):
+        raise ValueError(f"refusing to use untrusted Jira host: {site!r}")
+    return site
+
 
 def fetch_issue(site: str, key: str, email: str, token: str) -> dict[str, Any]:
+    validate_site(site)
     url = f"https://{site}/rest/api/3/issue/{key}"
     params = {
         "fields": "summary,description,status,labels,comment,issuetype,priority",

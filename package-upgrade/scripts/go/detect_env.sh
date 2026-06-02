@@ -98,8 +98,12 @@ IS_VENDORED="false"
 VENDOR_MODULES_COUNT=0
 if [ -f "vendor/modules.txt" ]; then
     IS_VENDORED="true"
-    # Each `# <module>` line in modules.txt = one vendored module
-    VENDOR_MODULES_COUNT=$(grep -c '^# ' vendor/modules.txt 2>/dev/null || echo 0)
+    # Each `# <module>` line in modules.txt = one vendored module.
+    # `grep -c` prints 0 AND exits non-zero on no match, so a bare
+    # `|| echo 0` would append a second "0" → "0\n0", corrupting the JSON.
+    # Run grep without -e failing the pipeline, then keep the first line only.
+    VENDOR_MODULES_COUNT=$( { grep -c '^# ' vendor/modules.txt 2>/dev/null || true; } | head -n1 )
+    [ -n "$VENDOR_MODULES_COUNT" ] || VENDOR_MODULES_COUNT=0
 fi
 
 # ---------- replace / exclude directives ----------

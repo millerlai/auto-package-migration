@@ -48,14 +48,14 @@ Go 跟 Python / JavaScript 有幾個結構性差異，這些差異直接影響�
 
 | Phase | Helper | 與其他 language 的差異 |
 |-------|--------|----------------------|
-| 0 環境偵測 | `scripts/detect_env_go.sh` | 多偵測 `go.work`、`vendor/`、legacy（dep/glide）、GOPROXY/GOPRIVATE、govulncheck/apidiff 是否安裝 |
-| 0.3 Pre-flight | `scripts/preflight.sh`（共用） | 多檢查 `go` 在 PATH、私有 module 認證 `.netrc`、govulncheck 可用 |
+| 0 環境偵測 | `scripts/go/detect_env.sh` | 多偵測 `go.work`、`vendor/`、legacy（dep/glide）、GOPROXY/GOPRIVATE、govulncheck/apidiff 是否安裝 |
+| 0.3 Pre-flight | `scripts/go/preflight.sh` | 多檢查 `go` 在 PATH、私有 module 認證 `.netrc`、govulncheck 可用 |
 | 1 輸入解析 | 共用 | CVE 場景**多一條 govulncheck path**：先跑掃描判斷可達性 |
-| 2 依賴分析 | `scripts/dep_tree_go.sh` | 多一個 `major_version_rewrite` strategy；無 lock-only strategy |
-| 3 Breaking change | `scripts/api_surface_diff_go.sh` + `scripts/git_diff_go.sh` + `scripts/fetch_changelog.py` | **三軌**：`apidiff` 取代 `.d.ts` diff；Git diff 過濾 `*.go` 排除 `_test.go` / `vendor/` |
-| 4 程式碼影響 | `scripts/ast_scanner_go.go` (`go run`) | 使用 `go/parser` + `go/ast`；symbol 命名規則見下 |
+| 2 依賴分析 | `scripts/go/dep_tree.sh` | 多一個 `major_version_rewrite` strategy；無 lock-only strategy |
+| 3 Breaking change | `scripts/go/api_surface_diff.sh` + `scripts/go/git_diff.sh` + `scripts/common/fetch_changelog.py` | **三軌**：`apidiff` 取代 `.d.ts` diff；Git diff 過濾 `*.go` 排除 `_test.go` / `vendor/` |
+| 4 程式碼影響 | `scripts/go/ast_scanner.go` (`go run`) | 使用 `go/parser` + `go/ast`；symbol 命名規則見下 |
 | 5 執行升級 | `go get` + 可能的 `gomajor` + `go mod tidy` + `go mod vendor`（若 vendor mode） | 與 JS 不同：沒有 lifecycle script 隱憂；major version 要 path rewrite |
-| 6 測試 | `scripts/run_tests_go.sh` | `go test ./...`、`-race`、`-count=1` 防 cache |
+| 6 測試 | `scripts/go/run_tests.sh` | `go test ./...`、`-race`、`-count=1` 防 cache |
 | 7 報告 | 共用模板 | Report 多一節：**govulncheck 可達性分析**（若觸發） |
 
 ---

@@ -59,13 +59,13 @@
 
 ## 取得 token 後的儲存流程
 
-使用 `scripts/save_token.sh`，按 `.env.jfrog` 是否已存在 + 是否含同名 key
+使用 `scripts/common/save_token.sh`，按 `.env.jfrog` 是否已存在 + 是否含同名 key
 走以下三條路：
 
 ### 流程 A: `.env.jfrog` 不存在 → 直接創建
 
 ```bash
-bash scripts/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
+bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
 ```
 
 腳本會：
@@ -85,7 +85,7 @@ bash scripts/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
 第一次呼叫腳本不加 `--force`：
 
 ```bash
-bash scripts/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
+bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
 # Exit code 2, status: "conflict"
 ```
 
@@ -102,7 +102,7 @@ bash scripts/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>"
 選 `[Y]` → 重跑加 `--force`:
 
 ```bash
-bash scripts/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>" --force
+bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>" --force
 # status: "replaced"
 ```
 

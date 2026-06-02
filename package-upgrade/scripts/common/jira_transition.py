@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 try:
@@ -26,6 +27,19 @@ try:
 except ImportError:
     print("ERROR: requests not installed. Run: pip install requests", file=sys.stderr)
     sys.exit(2)
+
+# A plain DNS hostname only. The API token is attached to every request, so the
+# host must be trusted: reject scheme/path/userinfo/port tricks and IP-literal /
+# localhost targets that would turn an attacker-influenced <site_host> into SSRF.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+)
+
+
+def validate_site(site: str) -> str:
+    if not isinstance(site, str) or not _HOSTNAME_RE.match(site):
+        raise ValueError(f"refusing to use untrusted Jira host: {site!r}")
+    return site
 
 
 def _auth() -> tuple[str, str]:
@@ -48,6 +62,7 @@ def _check(resp: requests.Response, key: str) -> None:
 
 
 def list_transitions(site: str, key: str) -> dict:
+    validate_site(site)
     email, token = _auth()
     url = f"https://{site}/rest/api/3/issue/{key}/transitions"
     resp = requests.get(url, auth=(email, token), timeout=30)
@@ -68,6 +83,7 @@ def list_transitions(site: str, key: str) -> dict:
 
 
 def apply_transition(site: str, key: str, transition_id: str, resolution: str | None) -> dict:
+    validate_site(site)
     email, token = _auth()
     url = f"https://{site}/rest/api/3/issue/{key}/transitions"
     payload: dict = {"transition": {"id": transition_id}}

@@ -36,10 +36,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/package-upgrade-skill"
-Repository = "https://github.com/YOUR_USERNAME/package-upgrade-skill"
-Issues = "https://github.com/YOUR_USERNAME/package-upgrade-skill/issues"
-Documentation = "https://github.com/YOUR_USERNAME/package-upgrade-skill#readme"
+Homepage = "https://github.com/millerlai/auto-package-migration"
+Repository = "https://github.com/millerlai/auto-package-migration"
+Issues = "https://github.com/millerlai/auto-package-migration/issues"
+Documentation = "https://github.com/millerlai/auto-package-migration#readme"
 
 [build-system]
 requires = ["hatchling"]

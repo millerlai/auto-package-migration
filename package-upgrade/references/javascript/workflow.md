@@ -98,7 +98,7 @@ npm update <package> --depth Infinity --ignore-scripts
 
 ## 測試 (Phase 6)
 
-`scripts/run_tests_js.sh` 偵測順序：
+`scripts/javascript/run_tests.sh` 偵測順序：
 1. `node_modules/.bin/vitest` → vitest
 2. `node_modules/.bin/jest` → jest
 3. `node_modules/.bin/mocha` → mocha
@@ -110,7 +110,7 @@ npm update <package> --depth Infinity --ignore-scripts
 - mocha: 直接傳 file path
 - node:test / 未知框架：跳過分層、只跑 `--all`
 
-`scripts/run_tests_js.sh` 輸出的 JSON 與 Python `run_tests.sh` 完全相同（`passed` / `failed` / `exit_code` / `traceback`），Phase 6 三向診斷邏輯可直接重用。
+`scripts/javascript/run_tests.sh` 輸出的 JSON 與 Python `run_tests.sh` 完全相同（`passed` / `failed` / `exit_code` / `traceback`），Phase 6 三向診斷邏輯可直接重用。
 
 ---
 

@@ -19,6 +19,32 @@ def _resp(status: int = 200, json_data=None) -> MagicMock:
     return m
 
 
+class TestValidateSite:
+    @pytest.mark.parametrize(
+        "good",
+        ["trendmicro.atlassian.net", "jira.example.com", "s.atlassian.net", "a.b.co"],
+    )
+    def test_accepts_plain_hostnames(self, good):
+        assert jira_fetch.validate_site(good) == good
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "evil.com/rest/api/3/issue",  # path → would redirect the request
+            "real@evil.com",  # userinfo → request goes to evil.com
+            "host:6379",  # port trick
+            "localhost",  # single-label internal target
+            "169.254.169.254",  # cloud metadata IP literal
+            "evil.com ",  # trailing space
+            "https://evil.com",  # embedded scheme
+            "",
+        ],
+    )
+    def test_rejects_ssrf_shaped_hosts(self, bad):
+        with pytest.raises(ValueError):
+            jira_fetch.validate_site(bad)
+
+
 # --------------------------------------------------------------------------- #
 # adf_to_text
 # --------------------------------------------------------------------------- #
@@ -217,17 +243,17 @@ class TestFetchIssue:
     def test_403_raises_runtime_error(self):
         with patch.object(jira_fetch.requests, "get", return_value=_resp(403)):
             with pytest.raises(RuntimeError, match="403"):
-                jira_fetch.fetch_issue("s", "K-1", "e", "t")
+                jira_fetch.fetch_issue("s.atlassian.net", "K-1", "e", "t")
 
     def test_404_raises_runtime_error(self):
         with patch.object(jira_fetch.requests, "get", return_value=_resp(404)):
             with pytest.raises(RuntimeError, match="404"):
-                jira_fetch.fetch_issue("s", "K-1", "e", "t")
+                jira_fetch.fetch_issue("s.atlassian.net", "K-1", "e", "t")
 
     def test_other_5xx_raises_http_error(self):
         with patch.object(jira_fetch.requests, "get", return_value=_resp(500)):
             with pytest.raises(_requests.HTTPError):
-                jira_fetch.fetch_issue("s", "K-1", "e", "t")
+                jira_fetch.fetch_issue("s.atlassian.net", "K-1", "e", "t")
 
     def test_uses_basic_auth(self):
         with patch.object(jira_fetch.requests, "get", return_value=_resp(200, {})) as mock_get:

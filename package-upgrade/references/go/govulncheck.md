@@ -126,7 +126,7 @@ Phase 7.1 報告新增一節：
 
 ```bash
 # Step 1: 先跑 govulncheck，看這個 CVE 在本專案是否可達
-bash scripts/govulncheck_go.sh <project_path> --cve CVE-2024-24786
+bash scripts/go/govulncheck.sh <project_path> --cve CVE-2024-24786
 
 # 輸出 JSON
 {
@@ -150,7 +150,7 @@ LLM 看到 `match: "not_present"` → 告知「此 CVE 不影響本專案」，�
 升完後再跑一次 govulncheck，確認該 CVE 已不再 reachable：
 
 ```bash
-bash scripts/govulncheck_go.sh <project_path> --cve CVE-2024-24786 --post-upgrade
+bash scripts/go/govulncheck.sh <project_path> --cve CVE-2024-24786 --post-upgrade
 ```
 
 期望輸出：`match: "not_present"`（漏洞版本已不在 dep tree）。
