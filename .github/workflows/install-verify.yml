@@ -61,6 +61,27 @@ jobs:
       - name: Verify installation
         run: PACKAGE_UPGRADE_SKILLS_ROOT=./.claude/skills bash verify_installation.sh
 
+      - name: Run uninstall.sh and assert OUR skills are removed
+        run: |
+          bash uninstall.sh --project --yes
+          for s in package-upgrade package-upgrade-feedback; do
+            if [ -d "./.claude/skills/$s" ]; then
+              echo "uninstall.sh left $s behind"; exit 1
+            fi
+          done
+          echo "uninstall.sh OK: both skills removed"
+
+      - name: Assert uninstall refuses a same-named impostor skill
+        run: |
+          # A different skill that merely shares the name must NOT be deleted.
+          mkdir -p imp/.claude/skills/package-upgrade
+          printf -- '---\nname: package-upgrade\ndescription: not ours\n---\n' \
+            > imp/.claude/skills/package-upgrade/SKILL.md
+          ( cd imp && bash "$GITHUB_WORKSPACE/uninstall.sh" --project --yes )
+          test -d imp/.claude/skills/package-upgrade \
+            || { echo "SAFETY REGRESSION: uninstall deleted a same-named non-our skill"; exit 1; }
+          echo "uninstall.sh OK: impostor preserved"
+
   # Guards the install.bat-specific drift fixed in this branch: its npm step must
   # place @babel/* under scripts/javascript/node_modules, not the old flat scripts/.
   windows:
@@ -103,6 +124,21 @@ jobs:
             || { echo "JS deps missing under scripts/javascript — install.bat npm path drift regressed"; exit 1; }
           echo "install.bat OK: skills copied and JS deps under scripts/javascript/"
 
+      - name: Run uninstall.bat
+        shell: cmd
+        run: .\uninstall.bat --project --yes
+
+      - name: Assert uninstall.bat removed both skills
+        shell: bash
+        run: |
+          root=./.claude/skills
+          for s in package-upgrade package-upgrade-feedback; do
+            if [ -d "$root/$s" ]; then
+              echo "uninstall.bat left $s behind"; exit 1
+            fi
+          done
+          echo "uninstall.bat OK: both skills removed"
+
   # Cygwin64 path. install-cygwin64.sh targets $USERPROFILE/.claude (the dir
   # Windows-native Claude Code actually reads, not Cygwin's $HOME), and
   # verify_installation_cygwin64.sh resolves that same path via cygpath. This
@@ -142,3 +178,13 @@ jobs:
           export PATH="$(cygpath -u "$pythonLocation"):$PATH"
           bash install-cygwin64.sh --global --yes
           bash verify_installation_cygwin64.sh
+          # Now remove it again and assert OUR skills are gone from the
+          # Windows-side .claude that install-cygwin64.sh wrote to.
+          bash uninstall-cygwin64.sh --global --yes
+          skills_root="$(cygpath -u "$USERPROFILE")/.claude/skills"
+          for s in package-upgrade package-upgrade-feedback; do
+            if [ -d "$skills_root/$s" ]; then
+              echo "uninstall-cygwin64.sh left $s behind"; exit 1
+            fi
+          done
+          echo "uninstall-cygwin64.sh OK: both skills removed"

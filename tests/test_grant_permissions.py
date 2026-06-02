@@ -326,3 +326,71 @@ class TestMainHookIntegration:
         self._run(monkeypatch, target, "--no-hooks")
         data = json.loads(target.read_text())
         assert _stop_commands(data) == []
+
+
+# --------------------------------------------------------------------------- #
+# remove_stop_hook / --uninstall — the inverse used by the uninstall scripts
+# --------------------------------------------------------------------------- #
+
+
+class TestRemoveStopHook:
+    def test_removes_only_our_hook(self):
+        settings = {
+            "hooks": {
+                "Stop": [
+                    {"matcher": "", "hooks": [{"type": "command", "command": "echo keep-me"}]},
+                ]
+            }
+        }
+        gp.merge_stop_hook(settings, "project")  # add ours alongside the unrelated one
+        removed = gp.remove_stop_hook(settings)
+        assert removed == 1
+        cmds = _stop_commands(settings)
+        assert "echo keep-me" in cmds
+        assert not any(gp.HOOK_MARKER in c for c in cmds)
+
+    def test_idempotent(self):
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "global")
+        assert gp.remove_stop_hook(settings) == 1
+        assert gp.remove_stop_hook(settings) == 0
+
+    def test_prunes_empty_hooks_key(self):
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "project")
+        gp.remove_stop_hook(settings)
+        # the sole hook was ours → Stop group and empty hooks dict are pruned
+        assert "hooks" not in settings
+
+    def test_no_settings_is_noop(self):
+        assert gp.remove_stop_hook({}) == 0
+
+
+class TestMainUninstall:
+    def _run(self, monkeypatch, target: Path, *extra: str):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["grant_permissions", "--settings", str(target), "--mode", "project", *extra],
+        )
+        return gp.main()
+
+    def test_uninstall_removes_hook_keeps_permissions(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        # install first
+        monkeypatch.setattr(
+            "sys.argv",
+            ["grant_permissions", "--settings", str(target), "--mode", "project"],
+        )
+        gp.main()
+        # uninstall
+        self._run(monkeypatch, target, "--uninstall")
+        data = json.loads(target.read_text())
+        assert _stop_commands(data) == []
+        # permissions left intact (conservative — may be shared with other skills)
+        assert data["permissions"]["allow"], "uninstall must not wipe permission allow-list"
+
+    def test_uninstall_when_nothing_present_is_noop(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        rc = self._run(monkeypatch, target, "--uninstall")
+        assert rc == 0
+        assert not target.exists()  # nothing to remove → file not created

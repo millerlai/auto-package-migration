@@ -159,6 +159,37 @@ def merge_stop_hook(settings: dict, mode: str) -> bool:
     return True
 
 
+def remove_stop_hook(settings: dict) -> int:
+    """Remove only OUR provenance Stop hook(s), identified by HOOK_MARKER.
+
+    Unrelated Stop hooks (and any other settings) are preserved. Empty Stop
+    groups / an empty `hooks` key left behind are pruned. Returns how many hook
+    entries were removed. The inverse of merge_stop_hook, used by --uninstall.
+    """
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict) or not isinstance(hooks.get("Stop"), list):
+        return 0
+    removed = 0
+    kept_groups = []
+    for group in hooks["Stop"]:
+        if not isinstance(group, dict) or "hooks" not in group:
+            kept_groups.append(group)  # shape we don't manage — leave it
+            continue
+        kept = [e for e in group["hooks"] if HOOK_MARKER not in e.get("command", "")]
+        removed += len(group["hooks"]) - len(kept)
+        if kept:
+            group["hooks"] = kept
+            kept_groups.append(group)
+        # else: group held only our hook(s) → drop the now-empty group
+    if kept_groups:
+        hooks["Stop"] = kept_groups
+    else:
+        hooks.pop("Stop", None)
+    if not hooks:
+        settings.pop("hooks", None)
+    return removed
+
+
 def resolve_gh_entries(spec: str) -> list[str]:
     """Resolve --gh-entries spec to a list of permission strings.
 
@@ -226,12 +257,32 @@ def main() -> int:
         help="Skip installing the Phase 3 provenance Stop hook",
     )
     parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Reverse mode: remove the provenance Stop hook (used by uninstall scripts)",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Print what would change without writing"
     )
     args = parser.parse_args()
 
     settings_path = Path(args.settings).expanduser()
     settings = load_settings(settings_path)
+
+    if args.uninstall:
+        removed = remove_stop_hook(settings)
+        print(f"Target:      {settings_path}")
+        print(f"Mode:        {args.mode}")
+        print(f"Stop hook:   {f'-{removed} (provenance gate)' if removed else 'none present'}")
+        if removed == 0:
+            print("\nNothing to remove — no provenance Stop hook in settings.")
+            return 0
+        if args.dry_run:
+            print("\n--dry-run: settings file not modified.")
+            return 0
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        print(f"\nUpdated {settings_path}")
+        return 0
 
     permissions = settings.setdefault("permissions", {})
     allow_list = permissions.setdefault("allow", [])
