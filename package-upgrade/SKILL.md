@@ -2027,6 +2027,31 @@ pnpm add -D <sibling_name>@<matching-version>
 並把 `types_sibling.sibling_name` 列入 Phase 7 報告的「相關套件」小節。
 版本對應策略：先試與 runtime 同 major，若 DefinitelyTyped 未發 latest 則退一個 patch。
 
+#### (JS) 安裝指令失敗 → 用 `parse_pm_errors.py` 分類再決定下一步
+
+npm / yarn / pnpm 的失敗輸出又長又雜，**不要憑肉眼猜**。把安裝指令的 stdout+stderr
+存檔，餵給分類器拿到 `primary_blocker`：
+
+```bash
+$PKG_MANAGER_BIN add <pkg>@<ver> 2>&1 | tee .package-upgrade-cache/pm-install.log || true
+python scripts/common/parse_pm_errors.py --pkg-manager <npm|yarn|pnpm> \
+    .package-upgrade-cache/pm-install.log
+```
+
+輸出含 `primary_blocker` 與 `remediation`，依此分流（不要把後續的 follow-on 錯誤
+當成新問題）：
+
+| `primary_blocker` | 處理 |
+|---|---|
+| `auth` | 缺 registry token → 回 **Step 0.3.1** 的 token 取得流程（`auth_tokens.md`）；使用者若跳過 → 走 lockfile-only fallback，Phase 7 報告註明「Auth fallback」 |
+| `network` | DNS/proxy/timeout → 提示檢查網路 / `HTTPS_PROXY` / registry 可達性後重試一次；仍失敗則中止並回報 |
+| `conflict` | peer/range 衝突 → 回 **Phase 2.2** 重評估策略（可能要改升 parent 或加 override） |
+| `checksum` | integrity 不符 → 清 cache 後重試（`npm cache clean --force` / `yarn cache clean`）；仍失敗回報 |
+| `missing` | 版本/套件不存在 → 回 Phase 1 校正版本號 |
+| `patch` (yarn) | 多為 noise，忽略 |
+
+`patch` 類預設是雜訊；只有 `primary_blocker` 才是真正要解的 blocker。
+
 #### For Go (Go modules):
 
 依 Phase 2 確定的 `upgrade_strategy` 走對應分支：

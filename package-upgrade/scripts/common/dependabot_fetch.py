@@ -180,12 +180,16 @@ def _fetch_via_requests(
 
     try:
         if alert_number is not None:
-            url: Optional[str] = f"{base}/repos/{owner}/{repo}/dependabot/alerts/{alert_number}"
-            resp = requests.get(url, headers=headers, timeout=30)
+            resp = requests.get(
+                f"{base}/repos/{owner}/{repo}/dependabot/alerts/{alert_number}",
+                headers=headers,
+                timeout=30,
+            )
             _check(resp)
             return [resp.json()]
 
-        url = f"{base}/repos/{owner}/{repo}/dependabot/alerts"
+        # Pagination cursor: becomes None when there's no `next` link.
+        url: Optional[str] = f"{base}/repos/{owner}/{repo}/dependabot/alerts"
         params: Optional[Dict[str, str]] = {"state": state, "per_page": "100"}
         alerts: List[Dict[str, Any]] = []
         while url:

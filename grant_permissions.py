@@ -189,7 +189,8 @@ def load_settings(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text())
+        data: dict = json.loads(path.read_text())
+        return data
     except json.JSONDecodeError as exc:
         sys.stderr.write(f"error: {path} is not valid JSON: {exc}\n")
         sys.exit(2)

@@ -33,6 +33,4 @@ jobs:
         run: uv run black --check .
 
       - name: Run mypy (type check)
-        # Scope matches the documented dev command in CLAUDE.md. The common/
-        # scripts need types-requests + a few annotations before they can join.
-        run: uv run mypy package-upgrade/scripts/python/*.py
+        run: uv run mypy package-upgrade/scripts/python/*.py package-upgrade/scripts/common/*.py grant_permissions.py

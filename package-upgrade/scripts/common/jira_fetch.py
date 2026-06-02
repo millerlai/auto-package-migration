@@ -61,7 +61,8 @@ def fetch_issue(site: str, key: str, email: str, token: str) -> dict[str, Any]:
     if resp.status_code == 404:
         raise RuntimeError(f"404 Not Found — issue {key} does not exist on {site}")
     resp.raise_for_status()
-    return resp.json()
+    data: dict[str, Any] = resp.json()
+    return data
 
 
 def adf_to_text(node: Any) -> str:
@@ -77,7 +78,7 @@ def adf_to_text(node: Any) -> str:
         return ""
     t = node.get("type")
     if t == "text":
-        return node.get("text", "")
+        return str(node.get("text", ""))
     if t == "hardBreak":
         return "\n"
     children = adf_to_text(node.get("content", []))
