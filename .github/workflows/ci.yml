@@ -34,3 +34,56 @@ jobs:
 
       - name: Run mypy (type check)
         run: uv run mypy package-upgrade/scripts/python/*.py package-upgrade/scripts/common/*.py grant_permissions.py
+
+  shellcheck:
+    name: ShellCheck (*.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run shellcheck on every tracked *.sh
+        # ubuntu-latest ships shellcheck; .shellcheckrc holds the config.
+        # git ls-files recurses, so nested scripts are covered too.
+        run: shellcheck --severity=warning $(git ls-files '*.sh')
+
+  eslint:
+    name: ESLint (JS helpers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install JS helper deps
+        working-directory: package-upgrade/scripts/javascript
+        run: npm ci
+
+      - name: Run eslint
+        working-directory: package-upgrade/scripts/javascript
+        run: npm run lint
+
+  go-lint:
+    name: Go (gofmt + vet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+
+      - name: gofmt (must be clean)
+        working-directory: package-upgrade/scripts/go
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These Go files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        working-directory: package-upgrade/scripts/go
+        run: go vet ./...

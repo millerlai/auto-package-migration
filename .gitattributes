@@ -2,3 +2,7 @@
 # Without this, core.autocrlf=true rewrites them to CRLF on checkout and bash
 # fails with "$'\r': command not found".
 *.sh text eol=lf
+
+# Go sources must stay LF so `gofmt -l` (line-ending sensitive) does not flag
+# CRLF-checked-out files in CI on non-Windows runners.
+*.go text eol=lf

@@ -129,7 +129,7 @@ if [ "$OVERWRITE_NEEDED" = "true" ]; then
         exit 0
     fi
     for skill in "${SKILLS[@]}"; do
-        rm -rf "$SKILLS_ROOT/$skill"
+        rm -rf "${SKILLS_ROOT:?}/$skill"
     done
 fi
 
