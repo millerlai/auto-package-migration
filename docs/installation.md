@@ -46,6 +46,25 @@ bash verify_installation_cygwin64.sh
 
 預期看到 `✓ 安裝驗證通過!`。
 
+### 2.5 解除安裝
+
+每個 installer 都有對應的 uninstaller（相同 `--global` / `--project` / `--skip-permissions` / `--yes` flag），會移除 `package-upgrade` 與 `package-upgrade-feedback` 兩個 skill：
+
+```bash
+# macOS / Linux
+bash uninstall.sh
+
+# Windows (PowerShell / cmd)
+uninstall.bat
+
+# Cygwin64 / Git Bash / MSYS2
+bash uninstall-cygwin64.sh
+```
+
+刪除前會先**指紋驗證**目標：`SKILL.md` 的 `name:` 要吻合，且一組只有本 skill 才有的 signature 檔案（`scripts/common/save_token.sh`、`scripts/common/provenance_stop_hook.py`、`scripts/go/dep_tree.py` 等）必須全部存在。任一不符就**拒刪並警告**，避免誤刪剛好同名的其他 skill。
+
+uninstaller 也會移除寫進 `settings.json` 的 provenance Stop hook（否則它會指向已刪除的腳本）；permission allow/ask 條目保守保留（可能與其他工具共用）。加 `--skip-permissions` 則完全不動 `settings.json`。
+
 ### 3. 開始使用
 
 ```bash

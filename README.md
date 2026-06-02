@@ -36,6 +36,15 @@ verify_installation.bat
 bash verify_installation_cygwin64.sh
 ```
 
+```bash
+# Uninstall — same flags as install (--global default / --project)
+bash uninstall.sh                  # macOS / Linux
+uninstall.bat                      # Windows (PowerShell / cmd)
+bash uninstall-cygwin64.sh         # Cygwin64 / Git Bash / MSYS2
+```
+
+Uninstall fingerprints each target (SKILL.md `name:` + signature files) before deleting, so a third-party skill that merely shares the `package-upgrade` name is left untouched. It also removes the provenance Stop hook from `settings.json` (pass `--skip-permissions` to leave settings alone).
+
 Two ways to invoke once installed:
 
 **A) One-shot from the shell** — start Claude with the prompt:
@@ -73,11 +82,11 @@ Use the slash form when you want explicit, deterministic invocation (e.g. a phra
 
 `install.sh` / `verify_installation.sh` assume a POSIX `$HOME`. On Windows, use the variant that matches how you launch Claude Code — each installer pairs with its own verifier:
 
-| Platform | Install | Verify |
-|----------|---------|--------|
-| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` |
-| Windows (PowerShell / cmd) | `install.bat` | `verify_installation.bat` |
-| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` |
+| Platform | Install | Verify | Uninstall |
+|----------|---------|--------|-----------|
+| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` | `bash uninstall.sh` |
+| Windows (PowerShell / cmd) | `install.bat` | `verify_installation.bat` | `uninstall.bat` |
+| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` | `bash uninstall-cygwin64.sh` |
 
 The Cygwin64 variant installs into `%USERPROFILE%\.claude` (the path Windows-native Claude Code actually reads) rather than Cygwin's `$HOME`, so it must be paired with `verify_installation_cygwin64.sh` — not the plain `verify_installation.sh`.
 
@@ -183,6 +192,7 @@ auto-package-migration/
 ├── CLAUDE.md                        # repo-level instructions for Claude Code
 ├── install.sh / install.bat / install-cygwin64.sh
 ├── verify_installation.sh / verify_installation.bat / verify_installation_cygwin64.sh
+├── uninstall.sh / uninstall.bat / uninstall-cygwin64.sh
 ├── grant_permissions.py             # writes the allow-list into Claude Code settings
 ├── pyproject.toml / uv.lock         # this repo's own dev env (UV-managed)
 │

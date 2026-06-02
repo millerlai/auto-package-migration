@@ -28,13 +28,13 @@
 
 ### Added — Jira / 觸發體驗
 - **Jira ticket 觸發** (Phase 1.C / 7.5 / 7.6)
-  - 新增 `scripts/jira_fetch.py` / `jira_comment.py` / `jira_transition.py` (REST + API token fallback)
+  - 新增 `scripts/common/jira_fetch.py` / `jira_comment.py` / `jira_transition.py` (REST + API token fallback)
   - SKILL.md 新增 Phase 1 情況 C (Jira URL / issue key)、Phase 7.5 (comment 回 ticket)、
     Phase 7.6 (詢問 transition 狀態，依目前狀態分階段推進)
-  - 新增 `references/jira_workflow.md`
+  - 新增 `references/common/jira_workflow.md`
   - PR title 加 `[ISSUE_KEY]` 前綴、body 第一行為 Jira URL，方便 reviewer 識別
   - 遷移報告同時 cite changelog URL 與 git diff commit SHA，並寫入 commit message + Jira comment
-- **BDSA 編號**：CVE 觸發擴充為 CVE / BDSA / GHSA；新增 `references/bdsa_mapping.md`
+- **BDSA 編號**：CVE 觸發擴充為 CVE / BDSA / GHSA；新增 `references/common/bdsa_mapping.md`
 
 ### Added — 安裝體驗
 - **Windows `install.bat`** (#11) — PowerShell 環境一鍵安裝

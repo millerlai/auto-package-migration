@@ -257,3 +257,140 @@ class TestMain:
         data = json.loads(target.read_text())
         assert data["theme"] == "dark"
         assert "preexisting" in data["permissions"]["allow"]
+
+
+# --------------------------------------------------------------------------- #
+# Stop-hook merge (provenance gate) — added in commit #54, was untested
+# --------------------------------------------------------------------------- #
+
+
+def _stop_commands(settings: dict) -> list[str]:
+    return [
+        e.get("command", "")
+        for g in settings.get("hooks", {}).get("Stop", [])
+        for e in g.get("hooks", [])
+    ]
+
+
+class TestMergeStopHook:
+    def test_build_project_hook_is_relative(self):
+        group = gp.build_stop_hook("project")
+        cmd = group["hooks"][0]["command"]
+        assert gp.HOOK_MARKER in cmd
+        assert ".claude/skills/package-upgrade" in cmd
+
+    def test_adds_when_absent(self):
+        settings: dict = {}
+        assert gp.merge_stop_hook(settings, "project") is True
+        assert sum(gp.HOOK_MARKER in c for c in _stop_commands(settings)) == 1
+
+    def test_idempotent_second_call_is_noop(self):
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "project")
+        assert gp.merge_stop_hook(settings, "project") is False
+        # still exactly one provenance hook
+        assert sum(gp.HOOK_MARKER in c for c in _stop_commands(settings)) == 1
+
+    def test_preserves_unrelated_existing_stop_hooks(self):
+        settings = {
+            "hooks": {
+                "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "echo hi"}]}]
+            }
+        }
+        assert gp.merge_stop_hook(settings, "global") is True
+        cmds = _stop_commands(settings)
+        assert "echo hi" in cmds
+        assert any(gp.HOOK_MARKER in c for c in cmds)
+
+
+class TestMainHookIntegration:
+    def _run(self, monkeypatch, target: Path, *extra: str):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["grant_permissions", "--settings", str(target), "--mode", "project", *extra],
+        )
+        gp.main()
+
+    def test_main_adds_hook_once_and_is_idempotent(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        self._run(monkeypatch, target)
+        first = json.loads(target.read_text())
+        assert sum(gp.HOOK_MARKER in c for c in _stop_commands(first)) == 1
+        # Re-run: hook must not be duplicated.
+        self._run(monkeypatch, target)
+        second = json.loads(target.read_text())
+        assert sum(gp.HOOK_MARKER in c for c in _stop_commands(second)) == 1
+
+    def test_no_hooks_flag_skips_hook(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        self._run(monkeypatch, target, "--no-hooks")
+        data = json.loads(target.read_text())
+        assert _stop_commands(data) == []
+
+
+# --------------------------------------------------------------------------- #
+# remove_stop_hook / --uninstall — the inverse used by the uninstall scripts
+# --------------------------------------------------------------------------- #
+
+
+class TestRemoveStopHook:
+    def test_removes_only_our_hook(self):
+        settings = {
+            "hooks": {
+                "Stop": [
+                    {"matcher": "", "hooks": [{"type": "command", "command": "echo keep-me"}]},
+                ]
+            }
+        }
+        gp.merge_stop_hook(settings, "project")  # add ours alongside the unrelated one
+        removed = gp.remove_stop_hook(settings)
+        assert removed == 1
+        cmds = _stop_commands(settings)
+        assert "echo keep-me" in cmds
+        assert not any(gp.HOOK_MARKER in c for c in cmds)
+
+    def test_idempotent(self):
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "global")
+        assert gp.remove_stop_hook(settings) == 1
+        assert gp.remove_stop_hook(settings) == 0
+
+    def test_prunes_empty_hooks_key(self):
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "project")
+        gp.remove_stop_hook(settings)
+        # the sole hook was ours → Stop group and empty hooks dict are pruned
+        assert "hooks" not in settings
+
+    def test_no_settings_is_noop(self):
+        assert gp.remove_stop_hook({}) == 0
+
+
+class TestMainUninstall:
+    def _run(self, monkeypatch, target: Path, *extra: str):
+        monkeypatch.setattr(
+            "sys.argv",
+            ["grant_permissions", "--settings", str(target), "--mode", "project", *extra],
+        )
+        return gp.main()
+
+    def test_uninstall_removes_hook_keeps_permissions(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        # install first
+        monkeypatch.setattr(
+            "sys.argv",
+            ["grant_permissions", "--settings", str(target), "--mode", "project"],
+        )
+        gp.main()
+        # uninstall
+        self._run(monkeypatch, target, "--uninstall")
+        data = json.loads(target.read_text())
+        assert _stop_commands(data) == []
+        # permissions left intact (conservative — may be shared with other skills)
+        assert data["permissions"]["allow"], "uninstall must not wipe permission allow-list"
+
+    def test_uninstall_when_nothing_present_is_noop(self, tmp_path: Path, monkeypatch):
+        target = tmp_path / "settings.json"
+        rc = self._run(monkeypatch, target, "--uninstall")
+        assert rc == 0
+        assert not target.exists()  # nothing to remove → file not created

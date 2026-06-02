@@ -137,8 +137,8 @@ def find_parents_in_tree(
     Returns:
         Tuple of (parent_packages, version_constraints)
     """
-    parents = []
-    constraints = {}
+    parents: list[str] = []
+    constraints: dict[str, str] = {}
 
     if format_type == "json" and isinstance(tree_data, dict):
         data = tree_data.get("data", [])
@@ -185,8 +185,8 @@ def classify_dependency(
 ) -> Dict[str, Any]:
     """Classify package as direct, transitive, or both dependency."""
     is_direct = False
-    parent_packages = []
-    version_constraints = {}
+    parent_packages: list[str] = []
+    version_constraints: dict[str, str] = {}
 
     # Check if package is directly declared in dependency files
     package_pattern = re.compile(rf"^{re.escape(package_name)}\b", re.MULTILINE | re.IGNORECASE)
@@ -353,7 +353,8 @@ def fetch_pypi_metadata(package_name: str, timeout: int = 10) -> Optional[Dict[s
         resp = _requests.get(f"https://pypi.org/pypi/{package_name}/json", timeout=timeout)
         if resp.status_code != 200:
             return None
-        return resp.json()
+        data: dict[str, Any] = resp.json()
+        return data
     except Exception:  # noqa: BLE001 — network/JSON failures all collapse to None
         return None
 

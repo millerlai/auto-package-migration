@@ -32,22 +32,14 @@ if [ ! -f "$DETECT" ]; then
 fi
 
 # Auto-load persisted token files BEFORE checking env vars. Convention matches
-# preflight.sh / preflight_go.sh — each .env.<service> is sourced if present.
+# preflight.sh / preflight_go.sh — each .env.<service> is loaded if present.
 # Files should be chmod 600 + gitignored (save_token.sh enforces this).
+# SECURITY: parse KEY=VALUE textually (load_token_files.sh) rather than sourcing,
+# so a token value can never execute embedded $(...) / backticks on load.
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
-for tok_file in "$PROJECT_ABS"/.env.pip \
-                "$PROJECT_ABS"/.env.poetry \
-                "$PROJECT_ABS"/.env.uv \
-                "$PROJECT_ABS"/.env.pypi \
-                "$PROJECT_ABS"/.env.jfrog; do
-    if [ -f "$tok_file" ]; then
-        set -a
-        # shellcheck disable=SC1090
-        . "$tok_file" 2>/dev/null || true
-        set +a
-        echo "(preflight) sourced $(basename "$tok_file")" >&2
-    fi
-done
+# shellcheck source=../common/load_token_files.sh
+. "$SCRIPT_DIR/../common/load_token_files.sh"
+load_token_files "$PROJECT_ABS" .env.pip .env.poetry .env.uv .env.pypi .env.jfrog
 
 ENV_JSON=$(bash "$DETECT" "$PROJECT_PATH" 2>/dev/null || echo '{}')
 

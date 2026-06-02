@@ -44,7 +44,26 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
+
+// SECURITY: pkg/version reach a shell via `npm pack`. npm on Windows is a .cmd
+// shim, so execFileSync('npm', …) without a shell throws on modern Node —
+// we therefore keep the shell call but strictly validate the interpolated
+// values against allowlists, so no shell metacharacter can ever reach it.
+const NPM_NAME_RE = /^(?:@[A-Za-z0-9-~][A-Za-z0-9-._~]*\/)?[A-Za-z0-9-~][A-Za-z0-9-._~]*$/;
+const VERSION_RE = /^[A-Za-z0-9.+-]+$/;
+function assertPkgName(name) {
+    if (typeof name !== 'string' || !NPM_NAME_RE.test(name)) {
+        throw new Error(`unsafe package name: ${JSON.stringify(name)}`);
+    }
+    return name;
+}
+function assertVersion(v) {
+    if (typeof v !== 'string' || !VERSION_RE.test(v)) {
+        throw new Error(`unsafe version string: ${JSON.stringify(v)}`);
+    }
+    return v;
+}
 
 let tsMorph;
 try {
@@ -60,6 +79,8 @@ try {
 
 function npmPack(pkg, version, outDir) {
     const cwd = outDir;
+    assertPkgName(pkg);
+    assertVersion(version);
     // `npm pack` downloads but doesn't install; outputs the tarball name on stdout.
     const tarball = execSync(`npm pack ${pkg}@${version} --silent`, {
         cwd, stdio: ['ignore', 'pipe', 'pipe'],
@@ -67,7 +88,8 @@ function npmPack(pkg, version, outDir) {
     const tarballPath = path.join(cwd, tarball);
     const extractDir = path.join(cwd, 'extracted');
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`tar -xzf "${tarballPath}" -C "${extractDir}"`, { stdio: 'ignore' });
+    // tar is a real executable on all platforms → no shell needed.
+    execFileSync('tar', ['-xzf', tarballPath, '-C', extractDir], { stdio: 'ignore' });
     // npm tarballs always extract to a top-level `package/` directory.
     return path.join(extractDir, 'package');
 }

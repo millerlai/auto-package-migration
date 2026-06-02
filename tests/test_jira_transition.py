@@ -114,13 +114,13 @@ class TestListTransitions:
         with patch.object(
             jira_transition.requests, "get", return_value=_resp(200, {"transitions": []})
         ):
-            result = jira_transition.list_transitions("s", "K-1")
+            result = jira_transition.list_transitions("s.atlassian.net", "K-1")
         assert result["transitions"] == []
 
     def test_propagates_404(self, env_auth):
         with patch.object(jira_transition.requests, "get", return_value=_resp(404)):
             with pytest.raises(RuntimeError, match="404"):
-                jira_transition.list_transitions("s", "K-1")
+                jira_transition.list_transitions("s.atlassian.net", "K-1")
 
 
 # --------------------------------------------------------------------------- #
@@ -139,7 +139,7 @@ class TestApplyTransition:
 
     def test_apply_with_resolution(self, env_auth):
         with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
-            result = jira_transition.apply_transition("s", "K-1", "21", "Done")
+            result = jira_transition.apply_transition("s.atlassian.net", "K-1", "21", "Done")
             _, kwargs = mock_post.call_args
             payload = kwargs["json"]
             assert payload["fields"]["resolution"]["name"] == "Done"
@@ -149,7 +149,7 @@ class TestApplyTransition:
         body = {"errors": {"resolution": "Field is required"}}
         with patch.object(jira_transition.requests, "post", return_value=_resp(400, body)):
             with pytest.raises(RuntimeError) as exc:
-                jira_transition.apply_transition("s", "K-1", "11", None)
+                jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
         assert "400" in str(exc.value)
         assert "resolution" in str(exc.value)
 
@@ -158,22 +158,22 @@ class TestApplyTransition:
         resp = _resp(400, text="<html>oops</html>")
         with patch.object(jira_transition.requests, "post", return_value=resp):
             with pytest.raises(RuntimeError) as exc:
-                jira_transition.apply_transition("s", "K-1", "11", None)
+                jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
         assert "400" in str(exc.value)
 
     def test_401_raises_runtime_error(self, env_auth):
         with patch.object(jira_transition.requests, "post", return_value=_resp(401)):
             with pytest.raises(RuntimeError, match="401"):
-                jira_transition.apply_transition("s", "K-1", "11", None)
+                jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
 
     def test_uses_basic_auth(self, env_auth):
         with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
-            jira_transition.apply_transition("s", "K-1", "11", None)
+            jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
             _, kwargs = mock_post.call_args
             assert kwargs["auth"] == ("me@x", "tok")
 
     def test_payload_shape_without_resolution(self, env_auth):
         with patch.object(jira_transition.requests, "post", return_value=_resp(204)) as mock_post:
-            jira_transition.apply_transition("s", "K-1", "11", None)
+            jira_transition.apply_transition("s.atlassian.net", "K-1", "11", None)
             _, kwargs = mock_post.call_args
             assert kwargs["json"] == {"transition": {"id": "11"}}

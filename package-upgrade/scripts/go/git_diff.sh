@@ -31,12 +31,24 @@ if [ -z "$REPO_URL" ] || [ -z "$OLD_VER" ] || [ -z "$NEW_VER" ]; then
     exit 1
 fi
 
+# SECURITY: repo URLs come from module metadata (attacker-controllable). git's
+# ext:: transport executes arbitrary commands and file:// reads local paths, so
+# refuse anything that isn't https.
+case "$REPO_URL" in
+    https://*) ;;
+    *)
+        echo "ERROR: refusing to clone non-https repository URL: $REPO_URL" >&2
+        exit 1
+        ;;
+esac
+
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 cd "$WORK_DIR" || exit 1
 
 echo "Cloning repository (shallow)..." >&2
-if ! git clone --bare --filter=tree:0 "$REPO_URL" repo.git 2>/dev/null; then
+if ! git -c protocol.ext.allow=never -c protocol.file.allow=never \
+        clone --bare --filter=tree:0 "$REPO_URL" repo.git 2>/dev/null; then
     echo "ERROR: Failed to clone repository: $REPO_URL" >&2
     exit 1
 fi

@@ -84,23 +84,23 @@ class TestPostComment:
     def test_401_raises_runtime_error(self):
         with patch.object(jira_comment.requests, "post", return_value=_resp(401)):
             with pytest.raises(RuntimeError, match="401"):
-                jira_comment.post_comment("s", "K-1", "x", "e", "t")
+                jira_comment.post_comment("s.atlassian.net", "K-1", "x", "e", "t")
 
     def test_403_raises_runtime_error(self):
         with patch.object(jira_comment.requests, "post", return_value=_resp(403)):
             with pytest.raises(RuntimeError, match="403"):
-                jira_comment.post_comment("s", "K-1", "x", "e", "t")
+                jira_comment.post_comment("s.atlassian.net", "K-1", "x", "e", "t")
 
     def test_404_raises_runtime_error(self):
         with patch.object(jira_comment.requests, "post", return_value=_resp(404)):
             with pytest.raises(RuntimeError, match="404"):
-                jira_comment.post_comment("s", "K-1", "x", "e", "t")
+                jira_comment.post_comment("s.atlassian.net", "K-1", "x", "e", "t")
 
     def test_sends_adf_body(self):
         with patch.object(
             jira_comment.requests, "post", return_value=_resp(201, {"id": "1"})
         ) as mock_post:
-            jira_comment.post_comment("s", "K", "hello world", "e", "t")
+            jira_comment.post_comment("s.atlassian.net", "K", "hello world", "e", "t")
             _, kwargs = mock_post.call_args
             payload = kwargs["json"]
             assert payload["body"]["type"] == "doc"
@@ -111,7 +111,7 @@ class TestPostComment:
         with patch.object(
             jira_comment.requests, "post", return_value=_resp(201, {"id": "1"})
         ) as mock_post:
-            jira_comment.post_comment("s", "K", "x", "alice@x", "tok")
+            jira_comment.post_comment("s.atlassian.net", "K", "x", "alice@x", "tok")
             _, kwargs = mock_post.call_args
             assert kwargs["auth"] == ("alice@x", "tok")
 
@@ -120,5 +120,5 @@ class TestPostComment:
         with patch.object(
             jira_comment.requests, "post", return_value=_resp(201, {"id": "1", "author": None})
         ):
-            result = jira_comment.post_comment("s", "K", "x", "e", "t")
+            result = jira_comment.post_comment("s.atlassian.net", "K", "x", "e", "t")
         assert result["author"] is None

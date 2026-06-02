@@ -18,7 +18,7 @@
 
 執行：
 ```bash
-node scripts/api_surface_diff_js.js <package> <old_version> <new_version>
+node scripts/javascript/api_surface_diff.js <package> <old_version> <new_version>
 ```
 
 腳本流程：
@@ -83,7 +83,7 @@ node scripts/api_surface_diff_js.js <package> <old_version> <new_version>
 
 執行：
 ```bash
-bash scripts/git_diff_js.sh <repo_url> <old_version> <new_version>
+bash scripts/javascript/git_diff.sh <repo_url> <old_version> <new_version>
 ```
 
 - Filter: `*.{js,jsx,mjs,cjs,ts,tsx,d.ts}`
@@ -105,7 +105,7 @@ bash scripts/git_diff_js.sh <repo_url> <old_version> <new_version>
 
 執行（與 Python 共用）：
 ```bash
-python scripts/fetch_changelog.py <package_name> <git_repo_url>
+python scripts/common/fetch_changelog.py <package_name> <git_repo_url>
 ```
 
 對 npm 套件 `fetch_changelog.py` 仍然管用 — 流程是 PyPI → GitHub Releases → repo CHANGELOG。
@@ -128,7 +128,7 @@ PyPI 找不到（這是 JS 套件）會跳過，直接走 GitHub Releases。GitH
 
 ```
 有 .d.ts?
-├─ yes → 跑 api_surface_diff_js.js
+├─ yes → 跑 scripts/javascript/api_surface_diff.js
 │  └─ 有結果? → 主軌走 .d.ts diff，git diff 做交叉驗證
 │  └─ 無結果? → fallback 到 git diff 主軌
 └─ no  → git diff 主軌；提醒使用者「無 TS 宣告，breaking change 偵測較弱」
@@ -140,7 +140,7 @@ PyPI 找不到（這是 JS 套件）會跳過，直接走 GitHub Releases。GitH
 
 執行：
 ```bash
-node scripts/ast_scanner_js.js <project_path> <package_name>
+node scripts/javascript/ast_scanner.js <project_path> <package_name>
 ```
 
 輸出 JSON schema 與 Python `ast_scanner.py` 相同（`scan_results` / `imports` / `usages`），

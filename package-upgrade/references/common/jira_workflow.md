@@ -49,7 +49,7 @@ content: trendmicro.atlassian.net
 │        └── 401/403/unauthorized → fallback ↓
 │
 └── 否 / fallback → 詢問使用者選 [1] [2] [3] (見 SKILL.md Phase 1.C.2)
-         ├── [1] 提供 token → scripts/jira_fetch.py, auth_mode = "rest_token"
+         ├── [1] 提供 token → scripts/common/jira_fetch.py, auth_mode = "rest_token"
          ├── [2] 重試 MCP → 回到頂端 (使用者重新登入後)
          └── [3] 手動貼 → 使用者直接在對話中貼內容, auth_mode = "manual"
 ```
@@ -76,7 +76,7 @@ mcp__claude_ai_Atlassian_Rovo__getJiraIssue(
 ```bash
 ATLASSIAN_EMAIL=miller_lai@trendmicro.com \
 ATLASSIAN_API_TOKEN=ATATT3xFfGF0... \
-  python scripts/jira_fetch.py trendmicro.atlassian.net V1E-148968
+  python scripts/common/jira_fetch.py trendmicro.atlassian.net V1E-148968
 ```
 
 Output 是 JSON,結構:
@@ -183,10 +183,10 @@ PR URL 依 Phase 7.3 結果有三種型態：
 git checkout {original_branch}
 git branch -D {feature_branch}
 # 依語言挑對應的 snapshot script:
-#   Python -> snapshot_env.sh
-#   JS     -> snapshot_env_js.sh
-#   Go     -> snapshot_env_go.sh
-bash scripts/snapshot_env{_js,_go,}.sh {project_path} restore
+#   Python -> scripts/python/snapshot_env.sh
+#   JS     -> scripts/javascript/snapshot_env.sh
+#   Go     -> scripts/go/snapshot_env.sh
+bash scripts/{python,javascript,go}/snapshot_env.sh {project_path} restore
 ```
 
 ---

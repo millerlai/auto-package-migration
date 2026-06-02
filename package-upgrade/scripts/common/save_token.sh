@@ -46,6 +46,21 @@ VALUE="$4"
 FORCE="false"
 [ "${5:-}" = "--force" ] && FORCE="true"
 
+# SECURITY: token files are loaded by preflight via a textual KEY=VALUE parser
+# (load_token_files.sh), but they may also be sourced by other tooling or by a
+# user. Write the value single-quoted so an accidental `source` cannot execute
+# embedded $(...) / backticks. A literal single quote can't be represented this
+# way without escaping the loader doesn't reverse, so reject it (real registry
+# tokens are base64url and never contain one).
+case "$VALUE" in
+    *\'*)
+        echo "ERROR: token value contains a single quote (') — not supported." >&2
+        printf '{"status":"error","message":"token value contains an unsupported single quote"}\n'
+        exit 1
+        ;;
+esac
+QVALUE="'$VALUE'"
+
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
 TARGET="$PROJECT_ABS/$ENV_FILE_NAME"
 GITIGNORE="$PROJECT_ABS/.gitignore"
@@ -95,10 +110,10 @@ write_atomic() {
 
 # Case 1: file doesn't exist → create with single line
 if [ ! -f "$TARGET" ]; then
-    write_atomic "$KEY=$VALUE
+    write_atomic "$KEY=$QVALUE
 "
     ensure_gitignore
-    emit "created" "Created $TARGET with $KEY (chmod 600). Future preflight will source this automatically."
+    emit "created" "Created $TARGET with $KEY (chmod 600). Future preflight will load this automatically."
     exit 0
 fi
 
@@ -108,12 +123,14 @@ if grep -qE "^$KEY=" "$TARGET" 2>/dev/null; then
         emit "conflict" "File already contains $KEY=... — re-run with --force to overwrite, or skip to keep existing value."
         exit 2
     fi
-    # Replace line in-place via temp file (portable: avoids sed -i differences across macOS/GNU)
-    NEW_CONTENT=$(awk -v k="$KEY" -v v="$VALUE" '
+    # Replace line in-place via temp file (portable: avoids sed -i differences across macOS/GNU).
+    # Pass the value through the environment (ENVIRON) rather than `-v` so awk
+    # does not process backslash escapes inside the (single-quoted) value.
+    NEW_CONTENT=$(QV="$QVALUE" awk -v k="$KEY" '
         BEGIN { replaced=0 }
-        $0 ~ "^" k "=" { print k "=" v; replaced=1; next }
+        $0 ~ "^" k "=" { print k "=" ENVIRON["QV"]; replaced=1; next }
         { print }
-        END { if (!replaced) print k "=" v }
+        END { if (!replaced) print k "=" ENVIRON["QV"] }
     ' "$TARGET")
     write_atomic "$NEW_CONTENT
 "
@@ -130,7 +147,7 @@ if [ -s "$TARGET" ]; then
         printf '\n' >> "$TARGET"
     fi
 fi
-printf '%s=%s\n' "$KEY" "$VALUE" >> "$TARGET"
+printf '%s=%s\n' "$KEY" "$QVALUE" >> "$TARGET"
 chmod 600 "$TARGET"
 ensure_gitignore
 emit "appended" "Appended $KEY to existing $TARGET (chmod 600)."

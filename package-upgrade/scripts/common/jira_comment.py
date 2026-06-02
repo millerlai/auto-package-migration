@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 try:
@@ -31,6 +32,19 @@ try:
 except ImportError:
     print("ERROR: requests not installed. Run: pip install requests", file=sys.stderr)
     sys.exit(2)
+
+# A plain DNS hostname only. The API token is attached to every request, so the
+# host must be trusted: reject scheme/path/userinfo/port tricks and IP-literal /
+# localhost targets that would turn an attacker-influenced <site_host> into SSRF.
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+)
+
+
+def validate_site(site: str) -> str:
+    if not isinstance(site, str) or not _HOSTNAME_RE.match(site):
+        raise ValueError(f"refusing to use untrusted Jira host: {site!r}")
+    return site
 
 
 def markdown_to_adf(md: str) -> dict:
@@ -57,6 +71,7 @@ def markdown_to_adf(md: str) -> dict:
 
 
 def post_comment(site: str, key: str, body_md: str, email: str, token: str) -> dict:
+    validate_site(site)
     url = f"https://{site}/rest/api/3/issue/{key}/comment"
     payload = {"body": markdown_to_adf(body_md)}
     resp = requests.post(

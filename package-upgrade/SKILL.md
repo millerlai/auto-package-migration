@@ -102,7 +102,8 @@ bash scripts/python/detect_env.sh <project_path>
 - `memory_hints`: 例 `["private_registry", "poetry_source", "pip_extra_index", "non_default_remote"]`
 
 根據偵測到的 pkg_manager，讀取對應的 references 文件:
-- pip → 讀 `references/python/pip_workflow.md`
+- pip → 讀 `references/python/pip_workflow.md`；專案若用 `requirements.in` / 自訂
+  `*.lock` 等 pip lock 變體，另讀 `references/python/pip_lock_patterns.md` 判斷該編輯哪個檔
 - poetry → 讀 `references/python/poetry_workflow.md`
 - uv → 讀 `references/python/uv_workflow.md`
 
@@ -754,6 +755,10 @@ python scripts/python/dep_tree.py <project_path> <package_name> \
 每個 direct parent 呼叫 PyPI JSON API 取 `info.requires_dist`，分類為
 `satisfies` / `would_not_help_pin` / `no_dep` / `unknown`，並把每條候選策略
 （`direct_bump` / `lock_only` / `bump_parent` per parent / `pin_add` / `pin_update` / `pin_source`）
+依 confidence 排序輸出在 `upgrade_strategies[]`，第一名同步寫到 `recommended_strategy`
+（schema 對齊 `dep_tree.js` / `dep_tree_go.py`，且**永遠非空** — 無法分類時以終結性的
+`unknown` 策略收尾）。未提供 `--target-version` 時 `parent_analyses` 為空、策略 fallback
+為僅依 `dependency_type` 判斷。
 
 #### Canonical type ↔ mechanism ↔ 情境 對照表（單一真實來源）
 
@@ -2021,6 +2026,31 @@ pnpm add -D <sibling_name>@<matching-version>
 
 並把 `types_sibling.sibling_name` 列入 Phase 7 報告的「相關套件」小節。
 版本對應策略：先試與 runtime 同 major，若 DefinitelyTyped 未發 latest 則退一個 patch。
+
+#### (JS) 安裝指令失敗 → 用 `parse_pm_errors.py` 分類再決定下一步
+
+npm / yarn / pnpm 的失敗輸出又長又雜，**不要憑肉眼猜**。把安裝指令的 stdout+stderr
+存檔，餵給分類器拿到 `primary_blocker`：
+
+```bash
+$PKG_MANAGER_BIN add <pkg>@<ver> 2>&1 | tee .package-upgrade-cache/pm-install.log || true
+python scripts/common/parse_pm_errors.py --pkg-manager <npm|yarn|pnpm> \
+    .package-upgrade-cache/pm-install.log
+```
+
+輸出含 `primary_blocker` 與 `remediation`，依此分流（不要把後續的 follow-on 錯誤
+當成新問題）：
+
+| `primary_blocker` | 處理 |
+|---|---|
+| `auth` | 缺 registry token → 回 **Step 0.3.1** 的 token 取得流程（`auth_tokens.md`）；使用者若跳過 → 走 lockfile-only fallback，Phase 7 報告註明「Auth fallback」 |
+| `network` | DNS/proxy/timeout → 提示檢查網路 / `HTTPS_PROXY` / registry 可達性後重試一次；仍失敗則中止並回報 |
+| `conflict` | peer/range 衝突 → 回 **Phase 2.2** 重評估策略（可能要改升 parent 或加 override） |
+| `checksum` | integrity 不符 → 清 cache 後重試（`npm cache clean --force` / `yarn cache clean`）；仍失敗回報 |
+| `missing` | 版本/套件不存在 → 回 Phase 1 校正版本號 |
+| `patch` (yarn) | 多為 noise，忽略 |
+
+`patch` 類預設是雜訊；只有 `primary_blocker` 才是真正要解的 blocker。
 
 #### For Go (Go modules):
 

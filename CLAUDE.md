@@ -94,7 +94,7 @@ uv run python package-upgrade/scripts/python/ast_scanner.py . requests
 uv run black package-upgrade/scripts/
 uv run ruff check package-upgrade/scripts/
 uv run ruff check --fix package-upgrade/scripts/
-uv run mypy package-upgrade/scripts/python/*.py
+uv run mypy package-upgrade/scripts/python/*.py package-upgrade/scripts/common/*.py grant_permissions.py
 
 # Tests (no tests exist yet — pytest config in pyproject.toml expects tests/)
 uv run pytest

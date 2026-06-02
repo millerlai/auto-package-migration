@@ -32,14 +32,15 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "types-requests>=2.31.0",
     "pre-commit>=3.5.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/package-upgrade-skill"
-Repository = "https://github.com/YOUR_USERNAME/package-upgrade-skill"
-Issues = "https://github.com/YOUR_USERNAME/package-upgrade-skill/issues"
-Documentation = "https://github.com/YOUR_USERNAME/package-upgrade-skill#readme"
+Homepage = "https://github.com/millerlai/auto-package-migration"
+Repository = "https://github.com/millerlai/auto-package-migration"
+Issues = "https://github.com/millerlai/auto-package-migration/issues"
+Documentation = "https://github.com/millerlai/auto-package-migration#readme"
 
 [build-system]
 requires = ["hatchling"]

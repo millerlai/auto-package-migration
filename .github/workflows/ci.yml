@@ -31,3 +31,6 @@ jobs:
 
       - name: Run black (format check)
         run: uv run black --check .
+
+      - name: Run mypy (type check)
+        run: uv run mypy package-upgrade/scripts/python/*.py package-upgrade/scripts/common/*.py grant_permissions.py

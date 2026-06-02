@@ -35,9 +35,9 @@ class PackageUsageVisitor(ast.NodeVisitor):
     def __init__(self, package_name: str, source_lines: List[str]):
         self.package_name = package_name
         self.source_lines = source_lines
-        self.imports = []  # Import statements
-        self.usages = []  # Symbol usage locations
-        self.imported_names = {}  # Maps local name -> original module path
+        self.imports: list[dict] = []  # Import statements
+        self.usages: list[dict] = []  # Symbol usage locations
+        self.imported_names: dict[str, str] = {}  # Maps local name -> original module path
 
     def visit_Import(self, node: ast.Import):
         """Track 'import module' statements."""
