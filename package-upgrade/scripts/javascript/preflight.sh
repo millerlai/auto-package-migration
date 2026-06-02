@@ -103,6 +103,32 @@ host_for_env_var() {
     fi
 }
 
+# Tier-1 capability detection: does this registry host ALREADY have a real
+# (non-${VAR}-placeholder) credential configured natively? If so, the package
+# manager can authenticate without us collecting a token at all. Offline only —
+# we read config files, never hit the network. Echoes the source file on a hit.
+#   * npm / pnpm / yarn-classic: //host[/path]:_authToken|_auth|_password=<value>
+#     in project .npmrc or ~/.npmrc (a leading `$` marks a ${VAR} placeholder).
+#   * yarn-berry: npmAuthToken under .yarnrc.yml (literal, not ${VAR}).
+registry_native_auth_source() {
+    local host="$1" f esc
+    { [ -z "$host" ] || [ "$host" = "unknown" ]; } && return 1
+    esc="${host//./\\.}"
+    for f in "$PROJECT_ABS/.npmrc" "$HOME/.npmrc"; do
+        [ -f "$f" ] || continue
+        if grep -Eq "^//${esc}[^=]*:_(authToken|auth|password)=[^\$[:space:]]" "$f" 2>/dev/null; then
+            echo "$f"; return 0
+        fi
+    done
+    for f in "$PROJECT_ABS/.yarnrc.yml" "$PROJECT_ABS/.yarnrc.default.yml"; do
+        [ -f "$f" ] || continue
+        if grep -Eq "npmAuthToken: *[^\$\"' [:space:]]" "$f" 2>/dev/null; then
+            echo "$f"; return 0
+        fi
+    done
+    return 1
+}
+
 # Check 1: pkg_manager binary available
 if [ -z "$PKG_MANAGER" ] || [ "$PKG_MANAGER" = "unknown" ]; then
     add_blocker "pkg_manager_unknown" \
@@ -130,18 +156,27 @@ if [ -n "$ENV_PLACEHOLDERS" ]; then
             add_ok "env_${var}" "Env var \$$var is set"
         else
             host=$(host_for_env_var "$var")
-            portal=$(token_portal_url "${host:-unknown}")
-            scope_summary=""
-            if have_jq; then
-                scope_summary=$(echo "$ENV_JSON" | jq -r --arg v "$var" \
-                    '(.custom_registries // []) | map(select(.auth_env_var == $v) | .scope) | join(", ")')
+            native_src=$(registry_native_auth_source "${host:-}" || true)
+            if [ -n "$native_src" ]; then
+                # Tier-1: PM can already authenticate natively — no token needed.
+                add_ok "registry_auth_native" \
+                    "Registry $host already authenticated via $native_src — env var \$$var not needed"
+            else
+                portal=$(token_portal_url "${host:-unknown}")
+                scope_summary=""
+                if have_jq; then
+                    scope_summary=$(echo "$ENV_JSON" | jq -r --arg v "$var" \
+                        '(.custom_registries // []) | map(select(.auth_env_var == $v) | .scope) | join(", ")')
+                fi
+                remediation="Required by config files referencing \${$var}"
+                [ -n "$scope_summary" ] && remediation="$remediation (scopes: $scope_summary)"
+                # Tier-2 self-auth comes before Tier-3 (pasting a raw token):
+                login_url="https://${host:-<registry-host>}/"
+                remediation="$remediation. Authenticate yourself (preferred): 'npm login --registry $login_url' (npm/pnpm) or 'yarn npm login' (yarn berry), then re-run preflight. Last resort — paste a token: get it at $portal, then export $var=<value>"
+                add_blocker "env_${var}_missing" \
+                    "Missing env var: \$$var" \
+                    "$remediation"
             fi
-            remediation="Required by config files referencing \${$var}"
-            [ -n "$scope_summary" ] && remediation="$remediation (scopes: $scope_summary)"
-            remediation="$remediation. Get token: $portal. Then: export $var=<value>"
-            add_blocker "env_${var}_missing" \
-                "Missing env var: \$$var" \
-                "$remediation"
         fi
     done <<< "$ENV_PLACEHOLDERS"
 fi

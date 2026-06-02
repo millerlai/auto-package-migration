@@ -215,9 +215,15 @@ if [ ${#PLACEHOLDERS[@]} -gt 0 ]; then
             add_ok "env_${var}" "Env var \$$var is set"
         else
             portal=$(token_portal_url "unknown")
+            # Tier-2 self-auth comes before Tier-3 (pasting a raw token). We can't
+            # reliably host-match a Python private index offline (pip/poetry/uv store
+            # auth in different places: pip.conf inline creds, ~/.netrc, keyring,
+            # ~/.config/pypoetry/auth.toml), so we keep the blocker but steer the
+            # user to authenticate natively first.
+            remediation="Referenced by one of: ${SCAN_FILES[*]}. Authenticate yourself (preferred): poetry → 'poetry config http-basic.<source> <user> <token>'; uv/pip → add a 'machine <host>' entry to ~/.netrc (chmod 600) or use keyring; then re-run preflight. Last resort — paste a token: get it at $portal, then export $var=<value>"
             add_blocker "env_${var}_missing" \
                 "Missing env var: \$$var (referenced in dependency config)" \
-                "Referenced by one of: ${SCAN_FILES[*]}. Get token: $portal. Then: export $var=<value>"
+                "$remediation"
         fi
     done
 fi
