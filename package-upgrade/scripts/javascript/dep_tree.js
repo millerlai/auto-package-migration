@@ -712,6 +712,14 @@ function concreteTargetVersion(targetVersion) {
 
 /** Fetch P@latest metadata from the registry. Returns parsed object or null. */
 function npmViewLatest(projectPath, parentName) {
+    // SECURITY: parentName is read from the project lockfile and interpolated
+    // into a shell command. npm on Windows is a .cmd shim (execFileSync without
+    // a shell throws on modern Node), so instead reject any name containing a
+    // shell metacharacter — registry package names never legitimately do.
+    if (typeof parentName !== 'string'
+        || !/^(?:@[A-Za-z0-9-~][A-Za-z0-9-._~]*\/)?[A-Za-z0-9-~][A-Za-z0-9-._~]*$/.test(parentName)) {
+        return null;
+    }
     try {
         const out = execSync(
             `npm view ${parentName}@latest --json`,
@@ -927,6 +935,18 @@ function recommendStrategies({ declaredIn, declaredConstraint, overridesPin,
         });
     }
 
+    // Always terminate with a classifiable strategy so the schema matches
+    // dep_tree.py / dep_tree_go.py: upgrade_strategies is never empty and
+    // recommended_strategy is always a string (never null).
+    if (strategies.length === 0) {
+        strategies.push({
+            type: 'unknown',
+            mechanism: '',
+            confidence: 0,
+            rationale: 'Could not classify an upgrade path. Manual review required.',
+        });
+    }
+
     return strategies;
 }
 
@@ -1132,7 +1152,9 @@ function main() {
         parent_analyses:    parentAnalyses,
         // NEW field — ranked upgrade strategies
         upgrade_strategies: upgradeStrategies,
-        recommended_strategy: upgradeStrategies[0] ? upgradeStrategies[0].type : null,
+        // recommendStrategies always returns a non-empty list (terminal
+        // 'unknown'), so this is always a string — aligned with py/go.
+        recommended_strategy: upgradeStrategies[0].type,
         // NEW field — workspace / monorepo location map
         workspace_info: workspaceInfo,
         // NEW field — @types/<pkg> DefinitelyTyped sibling

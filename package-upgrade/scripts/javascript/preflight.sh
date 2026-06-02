@@ -35,20 +35,14 @@ fi
 
 # Auto-load persisted token files BEFORE checking env vars. Each .env.<name>
 # in the project root (currently .env.jfrog; other registries may add their
-# own later) is sourced if present. Files are owned by the user only
+# own later) is loaded if present. Files are owned by the user only
 # (chmod 600 enforced by save_token.sh) and gitignored.
+# SECURITY: parse KEY=VALUE textually (load_token_files.sh) rather than sourcing,
+# so a token value can never execute embedded $(...) / backticks on load.
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
-for tok_file in "$PROJECT_ABS"/.env.jfrog "$PROJECT_ABS"/.env.npm "$PROJECT_ABS"/.env.github; do
-    if [ -f "$tok_file" ]; then
-        # set -a auto-exports every KEY=VALUE in the file; subshell-scoped
-        # so we don't leak unrelated variables into the parent shell.
-        # shellcheck disable=SC1090
-        set -a
-        . "$tok_file" 2>/dev/null || true
-        set +a
-        echo "(preflight) sourced $(basename "$tok_file")" >&2
-    fi
-done
+# shellcheck source=../common/load_token_files.sh
+. "$SCRIPT_DIR/../common/load_token_files.sh"
+load_token_files "$PROJECT_ABS" .env.jfrog .env.npm .env.github
 
 # Run language detector
 ENV_JSON=$(bash "$DETECT" "$PROJECT_PATH" 2>/dev/null || echo '{}')

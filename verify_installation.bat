@@ -90,7 +90,7 @@ if exist "!SKILL_DIR!\SKILL.md" (
 REM 4. 檢查 scripts (per-language 子目錄: common / python / javascript / go)
 echo.
 echo 4. 檢查 Scripts...
-for %%f in (fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py) do call :check_one common "%%f"
+for %%f in (fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh load_token_files.sh jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py) do call :check_one common "%%f"
 for %%f in (detect_env.sh dep_tree.py ast_scanner.py run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh api_surface_diff.sh pip_audit.sh) do call :check_one python "%%f"
 for %%f in (detect_env.sh dep_tree.js ast_scanner.js api_surface_diff.js git_diff.sh run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh runtime_verify.js) do call :check_one javascript "%%f"
 for %%f in (detect_env.sh dep_tree.sh dep_tree.py ast_scanner.go api_surface_diff.sh git_diff.sh run_tests.sh snapshot_env.sh preflight.sh govulncheck.sh validate_modfile.sh) do call :check_one go "%%f"

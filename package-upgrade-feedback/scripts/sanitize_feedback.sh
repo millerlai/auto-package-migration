@@ -66,12 +66,37 @@ HARD_SECRET_PATTERNS = [
     (r"\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b", "jwt"),
     (r"\bAIza[0-9A-Za-z_-]{35}\b",            "google api key"),
     (r"-----BEGIN [A-Z ]*PRIVATE KEY-----",   "private key block"),
+    # Tokens this skill itself handles (no fixed-length, opaque) ---------------
+    (r"\bATATT[A-Za-z0-9_=\-]{20,}",          "atlassian api token"),  # modern Jira/Confluence
+    (r"\bAKCp[A-Za-z0-9]{50,}",               "jfrog api key"),         # Artifactory API key
+    (r"\bcmVmdGtu[A-Za-z0-9+/=]{20,}",        "jfrog reference token"),
+    # Auth headers — value is a credential regardless of scheme
+    (r"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]{20,}",        "bearer token"),
+    (r"(?i)\bauthorization\s*[:=]\s*\S{20,}",           "authorization header"),
 ]
 hard_hits = []
 for pattern, label in HARD_SECRET_PATTERNS:
     for m in re.finditer(pattern, text):
         line_no = text[:m.start()].count("\n") + 1
         hard_hits.append((line_no, label, m.group(0)[:8] + "..."))
+
+# --- GENERIC HIGH-ENTROPY SECRETS ---
+# Opaque tokens (JFROG/Atlassian/etc.) have no fixed prefix, so prefix patterns
+# alone miss them. Catch any long run that *looks* like a credential, but be
+# careful NOT to halt on the things that legitimately appear in upgrade
+# feedback: git SHAs / digests (pure hex) and plain identifiers (no digit).
+# Heuristic: a >=32-char token containing lower AND upper AND a digit, that is
+# not pure hexadecimal. HALT (not redact) — public-issue path prefers caution.
+for m in re.finditer(r"(?<![A-Za-z0-9_])[A-Za-z0-9_\-+/=]{32,}(?![A-Za-z0-9_])", text):
+    tok = m.group(0)
+    if re.fullmatch(r"[0-9a-fA-F]+", tok):  # git sha / md5 / sha256 hex digest
+        continue
+    has_lower = any("a" <= c <= "z" for c in tok)
+    has_upper = any("A" <= c <= "Z" for c in tok)
+    has_digit = any(c.isdigit() for c in tok)
+    if has_lower and has_upper and has_digit:
+        line_no = text[:m.start()].count("\n") + 1
+        hard_hits.append((line_no, "high-entropy secret", tok[:8] + "..."))
 
 if hard_hits:
     print("HALT: suspected secret/token detected in feedback draft.", file=sys.stderr)
@@ -110,7 +135,7 @@ sub_and_count(
     "absolute path (linux)",
 )
 sub_and_count(
-    r"[A-Z]:\\Users\\[^\\s'\"`)\]]+(?:\\[^\s'\"`)\]]*)?",
+    r"[A-Z]:\\Users\\[^\\\s'\"`)\]]+(?:\\[^\s'\"`)\]]*)?",
     "<path>",
     "absolute path (windows)",
 )

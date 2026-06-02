@@ -144,6 +144,7 @@ echo ""
 echo "4. 檢查 Scripts..."
 check_scripts common \
     fetch_changelog.py git_diff.sh parse_pm_errors.py save_token.sh \
+    load_token_files.sh \
     jira_comment.py jira_fetch.py jira_transition.py dependabot_fetch.py \
     verify_provenance.sh provenance_stop_hook.py
 check_scripts python \

@@ -30,15 +30,12 @@ if [ ! -x "$DETECT" ]; then
 fi
 
 # Auto-load persisted token files. Same convention as preflight.sh.
+# SECURITY: parse KEY=VALUE textually (load_token_files.sh) rather than sourcing,
+# so a token value can never execute embedded $(...) / backticks on load.
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
-for tok_file in "$PROJECT_ABS"/.env.go "$PROJECT_ABS"/.env.jfrog "$PROJECT_ABS"/.env.github; do
-    if [ -f "$tok_file" ]; then
-        set -a
-        . "$tok_file" 2>/dev/null || true
-        set +a
-        echo "(preflight) sourced $(basename "$tok_file")" >&2
-    fi
-done
+# shellcheck source=../common/load_token_files.sh
+. "$SCRIPT_DIR/../common/load_token_files.sh"
+load_token_files "$PROJECT_ABS" .env.go .env.jfrog .env.github
 
 ENV_JSON=$(bash "$DETECT" "$PROJECT_PATH" 2>/dev/null || echo '{}')
 
