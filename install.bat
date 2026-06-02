@@ -187,6 +187,7 @@ if not defined PYTHON_CMD (
             if errorlevel 1 (
                 echo %YELLOW%⚠ 自動安裝失敗。請在 venv 內或手動執行:%NC%
                 echo   !PYTHON_CMD! -m pip install !MISSING_DEPS!
+                set "PY_MISSING_FLAG=true"
             ) else (
                 echo %GREEN%✓ 依賴已安裝%NC%
             )
