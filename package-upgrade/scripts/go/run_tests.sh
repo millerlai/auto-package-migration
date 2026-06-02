@@ -82,7 +82,7 @@ EXIT_CODE=0
 # -count=1: bypass test result cache (we just upgraded a dep — cache may be stale)
 go test $RACE -count=1 -json "${TARGETS[@]}" > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
 
-PARSED=$(python3 - <<'PY' < "$OUTPUT_FILE" || echo '{"passed":0,"failed":0,"failed_tests":[],"traceback":""}'
+PARSED=$(python3 -c "$(cat <<'PY'
 import json, sys
 
 passed = 0
@@ -135,7 +135,7 @@ print(json.dumps({
     "traceback": traceback,
 }))
 PY
-)
+)" < "$OUTPUT_FILE" || echo '{"passed":0,"failed":0,"failed_tests":[],"traceback":""}')
 
 # If python parse failed (e.g. -json output absent), keep the raw output as traceback
 if [ -z "$PARSED" ]; then

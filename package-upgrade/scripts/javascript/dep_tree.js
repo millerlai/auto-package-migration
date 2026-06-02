@@ -330,7 +330,7 @@ function _readPnpmBlock(text, blockName) {
         const line = lines[i];
         // End of block: a column-0 non-whitespace line (next top-level key)
         if (line.length > 0 && !/^\s/.test(line)) break;
-        const keyMatch = /^  ['"]?(\/?[^'"]+?)['"]?:\s*$/.exec(line);
+        const keyMatch = /^ {2}['"]?(\/?[^'"]+?)['"]?:\s*$/.exec(line);
         if (!keyMatch) { i++; continue; }
         const fullKey = keyMatch[1]; // e.g. "/lodash@4.17.21" or "lodash@4.17.21(react@18)"
         const stripped = fullKey.replace(/^\//, '');
@@ -340,14 +340,14 @@ function _readPnpmBlock(text, blockName) {
         const entry = { locators: [fullKey], name: m[1], version: m[2],
                         dependencies: {}, peerDependencies: {} };
         i++;
-        while (i < lines.length && /^    /.test(lines[i])) {
+        while (i < lines.length && /^ {4}/.test(lines[i])) {
             const trimmed = lines[i].trim();
             if (!trimmed) { i++; continue; }
             if (/^dependencies:\s*$/.test(trimmed) || /^peerDependencies:\s*$/.test(trimmed)
                 || /^optionalDependencies:\s*$/.test(trimmed)) {
                 const section = trimmed.split(':')[0];
                 i++;
-                while (i < lines.length && /^      /.test(lines[i])) {
+                while (i < lines.length && /^ {6}/.test(lines[i])) {
                     const dl = lines[i].trim();
                     if (!dl) { i++; continue; }
                     const dm = /^([^:]+):\s*(.+?)\s*$/.exec(dl);

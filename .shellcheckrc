@@ -1,0 +1,17 @@
+# ShellCheck configuration for the package-upgrade skill scripts.
+
+# Follow `source ../common/*.sh` includes instead of emitting SC1091 for them.
+external-sources=true
+
+# SC2010 (avoid `ls | grep`): the only occurrences list backup files under a
+# tool-controlled snapshot dir (timestamped names, no spaces) — some inside
+# `cat <<EOF` heredocs where an inline `# shellcheck disable` directive cannot
+# be placed. The filenames are not user-controlled, so the SC2010 caveat about
+# non-alphanumeric names does not apply here.
+disable=SC2010
+
+# SC2034 (variable appears unused): detect_env/preflight scripts set many flags
+# that are consumed by callers (mirrored into MEMORY_HINTS, emitted JSON, or
+# reserved for downstream phases). Several are assigned inside `case` branches
+# where an inline directive is rejected (SC1124). Disabled project-wide.
+disable=SC2034

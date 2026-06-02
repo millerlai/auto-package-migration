@@ -98,6 +98,7 @@ const STDERR_ERROR_PATTERNS = [
 
 // ANSI escape stripper — terminal color codes interfere with regex matching.
 function stripAnsi(s) {
+    // eslint-disable-next-line no-control-regex -- ESC (\x1b) is the literal we strip
     return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
 
@@ -279,6 +280,7 @@ async function playwrightProbe(url, screenshotPath) {
     let domNodeCount = 0;
     try {
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        // eslint-disable-next-line no-undef -- runs in the browser via page.evaluate, where `document` exists
         domNodeCount = await page.evaluate(() => document.querySelectorAll('*').length);
         await page.screenshot({ path: screenshotPath, fullPage: false });
     } catch (err) {

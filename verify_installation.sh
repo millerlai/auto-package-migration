@@ -152,7 +152,8 @@ check_scripts python \
     preflight.sh validate_lockfile.sh api_surface_diff.sh pip_audit.sh
 check_scripts javascript \
     detect_env.sh dep_tree.js ast_scanner.js api_surface_diff.js git_diff.sh \
-    run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh runtime_verify.js
+    run_tests.sh snapshot_env.sh preflight.sh validate_lockfile.sh runtime_verify.js \
+    eslint.config.js
 check_scripts go \
     detect_env.sh dep_tree.sh dep_tree.py ast_scanner.go api_surface_diff.sh \
     git_diff.sh run_tests.sh snapshot_env.sh preflight.sh govulncheck.sh validate_modfile.sh

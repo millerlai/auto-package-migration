@@ -4,10 +4,18 @@
   "private": true,
   "description": "Node-side helpers for the package-upgrade Claude Code skill (JavaScript support).",
   "license": "MIT",
+  "scripts": {
+    "lint": "eslint ."
+  },
   "dependencies": {
     "@babel/parser": "^7.24.0",
     "@babel/traverse": "^7.24.0",
     "semver": "^7.6.0",
     "ts-morph": "^22.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
   }
 }

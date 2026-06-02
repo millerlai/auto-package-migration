@@ -165,7 +165,7 @@ RAW=$(apidiff "$OLD_DIR" "$NEW_DIR" 2>&1 || true)
 #   - pkg/path: <Symbol>: added
 #
 # (apidiff's text format varies slightly between versions.)
-DIFF_JSON=$(echo "$RAW" | python3 - "$MODULE_PATH" <<'PY' 2>/dev/null || echo '{"removed":[],"added":[],"changed":[]}'
+DIFF_JSON=$(echo "$RAW" | python3 -c "$(cat <<'PY'
 import json, sys, re
 
 raw = sys.stdin.read()
@@ -237,7 +237,7 @@ while i < len(sections):
 
 print(json.dumps({"removed": removed, "added": added, "changed": changed}))
 PY
-)
+)" "$MODULE_PATH" 2>/dev/null || echo '{"removed":[],"added":[],"changed":[]}')
 
 # ---------- harvest // Deprecated: comments added in new version ----------
 
