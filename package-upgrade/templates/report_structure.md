@@ -341,7 +341,7 @@ Related to: BC-002
 **For pip**:
 ```bash
 # Restore from snapshot
-bash scripts/snapshot_env.sh . restore
+bash scripts/python/snapshot_env.sh . restore
 
 # Or manually downgrade
 pip install requests==2.28.0
