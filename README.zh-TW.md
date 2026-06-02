@@ -38,6 +38,15 @@ verify_installation.bat
 bash verify_installation_cygwin64.sh
 ```
 
+```bash
+# 解除安裝 — 與安裝相同的 flag（預設 --global / 可 --project）
+bash uninstall.sh                  # macOS / Linux
+uninstall.bat                      # Windows（PowerShell / cmd）
+bash uninstall-cygwin64.sh         # Cygwin64 / Git Bash / MSYS2
+```
+
+解除安裝前會先「指紋驗證」目標（`SKILL.md` 的 `name:` + 我們獨有的 signature 檔案），確認確實是本專案安裝的 skill 才刪 —— 剛好同名的第三方 skill 不會被誤刪。同時會移除寫進 `settings.json` 的 provenance Stop hook（加 `--skip-permissions` 則完全不動 settings）。
+
 裝完後，有兩種觸發方式：
 
 **A) Shell 一行觸發** — 從命令列直接帶 prompt 啟動：
@@ -75,11 +84,11 @@ $ claude
 
 `install.sh` / `verify_installation.sh` 假設 POSIX `$HOME`。Windows 上請依你啟動 Claude Code 的方式選對應變體，每個 install 都要搭配自己的 verify：
 
-| 平台 | 安裝 | 驗證 |
-|------|------|------|
-| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` |
-| Windows（PowerShell / cmd） | `install.bat` | `verify_installation.bat` |
-| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` |
+| 平台 | 安裝 | 驗證 | 解除安裝 |
+|------|------|------|----------|
+| macOS / Linux | `bash install.sh` | `bash verify_installation.sh` | `bash uninstall.sh` |
+| Windows（PowerShell / cmd） | `install.bat` | `verify_installation.bat` | `uninstall.bat` |
+| Windows + Cygwin64 / Git Bash / MSYS2 | `bash install-cygwin64.sh` | `bash verify_installation_cygwin64.sh` | `bash uninstall-cygwin64.sh` |
 
 Cygwin64 變體會裝到 `%USERPROFILE%\.claude`（Windows 原生 Claude Code 真正讀的路徑），而非 Cygwin 的 `$HOME`，因此必須搭配 `verify_installation_cygwin64.sh`，不能用一般的 `verify_installation.sh`。
 

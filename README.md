@@ -192,6 +192,7 @@ auto-package-migration/
 ├── CLAUDE.md                        # repo-level instructions for Claude Code
 ├── install.sh / install.bat / install-cygwin64.sh
 ├── verify_installation.sh / verify_installation.bat / verify_installation_cygwin64.sh
+├── uninstall.sh / uninstall.bat / uninstall-cygwin64.sh
 ├── grant_permissions.py             # writes the allow-list into Claude Code settings
 ├── pyproject.toml / uv.lock         # this repo's own dev env (UV-managed)
 │
