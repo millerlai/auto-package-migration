@@ -242,10 +242,20 @@ bash scripts/go/preflight.sh <project_path>
 [3] 中止
 ```
 
-### Step 0.3.1: Token-acquisition 互動（缺 JFROG_TOKEN 等 token blocker 時）
+### Step 0.3.1: Registry 認證互動（缺 JFROG_TOKEN 等 token blocker 時）
 
-對 `env_*_missing` 類 blocker，**逐字**用 `references/common/auth_tokens.md` 指定的詢問
-範本（IMPROVEMENTS feedback 要求的措辭），別自己換句話說。範例（JFROG_TOKEN）：
+走 `references/common/auth_tokens.md` 的 **capability-first 三層政策**，raw token 是最後手段。
+
+**Tier 1 已先處理**：若 preflight 報的是 `registry_auth_native`（而非 `env_<VAR>_missing`），
+代表 registry 已有原生憑證，**完全不需要 token**，直接跳過本步驟。只有真的出現
+`env_<VAR>_missing` blocker 才往下走。
+
+**Tier 2（自助 auth，排在貼 token 之前）**：先引導使用者自己認證 —
+`! npm login --registry <url>`（npm/pnpm）/ `! yarn npm login`（yarn berry）/ 自行編
+`~/.npmrc`。做完請使用者重跑 skill（preflight 會偵測到 `registry_auth_native`，Tier 1 通過）。
+
+**Tier 3（最後手段）**：使用者選擇仍要貼 token 時，取得 token 的措辭**逐字**用
+`auth_tokens.md` 指定的範本（IMPROVEMENTS feedback 要求）：
 
 ```
 🔑 取得 token:
@@ -254,14 +264,25 @@ bash scripts/go/preflight.sh <project_path>
   that will be used as part of CURL.
 ```
 
-**使用者提供 token 後的儲存規則**（必跑 `scripts/common/save_token.sh`）：
+**收到 token 後（預設不持久化）**：
 
 1. 先 `export <ENV_VAR>=<value>` 進當前 session（讓 Phase 5 命令可用）
-2. 呼叫 `bash scripts/common/save_token.sh <project_path> .env.<service> <KEY> "<value>"`：
+2. **預設不寫檔**。額外問一次是否要記住下次：
+   ```
+   要不要記住這個 token，下次 session 免再提供?
+   [Y] 記住 — 寫入 <project>/.env.<service> (chmod 600 + gitignore，下次 preflight 自動讀取)
+   [N] 不記住 (預設) — token 只在這個 session 有效
+   ```
+   - 選 [N]（預設）→ 結束，不寫檔。
+   - 選 [Y] → 走下方 opt-in 持久化流程。
+
+**opt-in 持久化流程（僅在使用者選 [Y]）**——必跑 `scripts/common/save_token.sh`：
+
+1. 呼叫 `bash scripts/common/save_token.sh <project_path> .env.<service> <KEY> "<value>"`：
    - 檔案不存在 → 直接創建（`{"status":"created"}`）
    - 檔案存在但無同名 key → 直接追加（`{"status":"appended"}`）
    - 檔案存在且**有同名 key** → 腳本回 exit 2 + `{"status":"conflict"}`
-3. 收到 `conflict` → 詢問使用者：
+2. 收到 `conflict` → 詢問使用者：
    ```
    ⚠️ <project>/.env.jfrog 已經有 JFROG_TOKEN 值。
    是否覆蓋成你剛才提供的新 token?
@@ -275,8 +296,7 @@ bash scripts/go/preflight.sh <project_path>
 不需要 LLM 手動處理。**永遠不要直接用 Write/Edit 工具寫 token 檔**，那會失去
 chmod / gitignore 保護。
 
-下次 session 跑 preflight 時，相同的 token 就由 `preflight.sh` 自動 source，
-不會再被詢問。
+下次 session 跑 preflight 時，已持久化的 token 由 `preflight.sh` 自動 source，不會再被詢問。
 
 **警告 (⚠️) 不阻擋**，但要在 Phase 7.1 報告中列出（讓 reviewer 知道哪些步驟跑在
 降級模式下）。
@@ -518,9 +538,13 @@ issue_url = f"https://{site_host}/browse/{issue_key}"
 並在 Phase 7.2 commit message 第一行、Phase 7.3 PR title/body 中明顯呈現,
 讓 git web portal (GitHub/Bitbucket/GitLab) 上的 reviewer 一眼就能跳到 Jira ticket。
 
-#### Step 1.C.2: 抓取 ticket 內容
+#### Step 1.C.2: 抓取 ticket 內容（capability-first，token 是最後手段）
 
-**優先用 Atlassian MCP** (使用者多半已透過 claude.ai 連接):
+依 `references/common/auth_tokens.md` 的三層政策取得 ticket，**raw token 是最後手段**：
+
+**Tier 1 — 偵測既有能力（優先）**：先看**你目前的可用工具清單**裡有沒有
+Atlassian / Jira 的 MCP 工具（名稱形如 `mcp__*Atlassian*` / `...getJiraIssue`）。
+**有就直接用，不要先問 token**：
 
 ```
 mcp__claude_ai_Atlassian_Rovo__getJiraIssue(
@@ -531,19 +555,21 @@ mcp__claude_ai_Atlassian_Rovo__getJiraIssue(
 )
 ```
 
-**權限失敗 fallback**: 若 MCP 回傳 401 / 403 / `unauthorized` / `not accessible`:
+MCP 工具存在但回傳 401 / 403 / `unauthorized` / `not accessible` → 視為 Tier 1 落空，
+進 Tier 2。
 
-> 暫停並詢問使用者:
->
-> 無法存取 `{site}/browse/{key}` (HTTP {status})。請選擇:
-> - **[1]** 提供 Atlassian email + API token (我會用環境變數呼叫 Atlassian REST API,
->        token 只在這個 session 暫存,不會寫到任何檔案;⚠️ token 會出現在這個對話的 transcript 中)
-> - **[2]** 我已在瀏覽器登入 Atlassian MCP 連線,請重試
-> - **[3]** 我會手動貼上 ticket 的內容到對話中
+**Tier 2 / Tier 3 — 暫停並詢問使用者**（**自助連線排在貼 token 之前**）:
 
-若使用者選 [1]:
+> 無法存取 `{site}/browse/{key}`（{無 MCP 工具 | HTTP {status}}）。請選擇:
+> - **[1]** 我已在瀏覽器連接 / 登入 Atlassian MCP，請重試（Tier 2，推薦；token 不經過這個對話）
+> - **[2]** 我會手動貼上 ticket 的內容到對話中
+> - **[3]** 提供 Atlassian email + API token（**最後手段**；token 只在這個 session 暫存、
+>          **不寫任何檔案**；⚠️ 會出現在這個對話的 transcript 中）
+
+選 [1] → 重試 Tier 1 的 MCP 呼叫。
+選 [3] (Tier 3):
 1. 詢問 email 和 API token (token 連結: `https://id.atlassian.com/manage-profile/security/api-tokens`)
-2. 設定環境變數 `ATLASSIAN_EMAIL` 和 `ATLASSIAN_API_TOKEN`
+2. 設定環境變數 `ATLASSIAN_EMAIL` 和 `ATLASSIAN_API_TOKEN`（**不持久化**）
 3. 呼叫 `python scripts/common/jira_fetch.py <site_host> <issue_key>` 取得 JSON
 
 #### Step 1.C.3: 分析 ticket 內容 (LLM 任務)
@@ -1950,8 +1976,9 @@ $PKG_MANAGER_BIN install --mode update-lockfile
 
 對應 manifest 寫法：在 `package.json` 加 `"resolutions": { "<pkg>": "<version>" }`。
 
-**若 preflight 偵測到缺 auth token（IMPROVEMENTS #1）**：詢問使用者選擇：
-- 提供 token → `export <ENV_VAR>=<value>`，續走完整 `yarn up`
+**若 preflight 偵測到缺 auth token（IMPROVEMENTS #1）**：依 Phase 0.3.1 的 capability-first
+三層處理（`registry_auth_native` 代表已有原生憑證、直接續走完整 `yarn up`）。仍缺時詢問使用者：
+- 自助 auth（推薦）/ 提供 token → `export <ENV_VAR>=<value>`，續走完整 `yarn up`
 - 跳過 → 走「手動編輯 yarn.lock + Phase 5.4 validate_lockfile.sh」fallback；Phase 7 報告中註明「Auth fallback: lockfile-only」
 
 詳見 `references/javascript/yarn_workflow.md` 與 `references/common/auth_tokens.md`。
@@ -3110,8 +3137,9 @@ go mod vendor
 | 時間點 | 你要提供的資訊 |
 |--------|-------------|
 | Phase 0.3: Pre-flight blockers | 列出 ❌ blockers + 修法 + 詢問 [1] 修完再來 / [2] 走 fallback / [3] 中止 |
-| Phase 0.3: 缺 auth token | 列出哪個 env var + token portal URL + 詢問 [1] 提供 token / [2] 跳過走 lockfile-only / [3] 中止 |
-| Phase 0.3.1: `.env.<service>` 已有同 key | 顯示衝突 + 詢問 [Y] 覆蓋舊 token / [N] 保留現有檔 (新 token 仍 session export) |
+| Phase 0.3: 缺 auth token | capability-first：`registry_auth_native` 則免問；否則列出 env var + 詢問 [1] 自助 auth (推薦) / [2] 跳過走 lockfile-only / [3] 提供 token (最後手段) / [4] 中止 |
+| Phase 0.3.1: 收到 token | 預設只 session export、不寫檔；再問 [Y] 記住 (save_token.sh) / [N] 不記住 (預設) |
+| Phase 0.3.1: `.env.<service>` 已有同 key (持久化時) | 顯示衝突 + 詢問 [Y] 覆蓋舊 token / [N] 保留現有檔 (新 token 仍 session export) |
 | Phase 1.C.4: Jira ticket 解析結果 | 抽到的 package/版本/CVE/驗收條件,等使用者校正 |
 | Phase 2.0 (JS workspace): 範圍選擇 | 是否套用到 root / 特定 workspace / 全部 (見 Phase 2.0 表) |
 | Phase 2.0.1 (Go workspace): 子模組選擇 | `go.work` 內哪些子模組是目標 |
