@@ -864,6 +864,7 @@ Go 版透過 `go list -m -json all` + `go mod graph` 取得完整資訊。提供
 - `is_peer` (JS only): 是否為 `peerDependencies`
 - `declared_in` (JS only): `["dependencies", "devDependencies", ...]`
 - `full_tree`: 完整依賴子樹
+- `warnings`（Python / JS）：結果可能不完整的原因（例如讀不了 poetry / uv lockfile，或 JS 的 `unsupported_lockfile_version`）。非空時先告知使用者，不可把 `dependency_type: "unknown"` 或空的 `parent_packages` 當成「套件不存在」或「沒有上層套件」。
 
 JS 額外輸出（供 Phase 2.0 與 Phase 5 使用）：
 - `workspace_info.is_workspace_root`: bool — 是否為 monorepo root

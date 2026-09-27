@@ -318,7 +318,7 @@ function parseYarn1(text) {
  *       dependencies:
  *         is-arrayish: 0.3.2
  */
-function _readPnpmBlock(text, blockName) {
+function _readPnpmBlock(text, blockName, isLegacy) {
     const entries = [];
     const re = new RegExp(`(^|\\n)${blockName}:\\s*\\n`);
     const match = re.exec(text);
@@ -333,9 +333,14 @@ function _readPnpmBlock(text, blockName) {
         const keyMatch = /^ {2}['"]?(\/?[^'"]+?)['"]?:\s*$/.exec(line);
         if (!keyMatch) { i++; continue; }
         const fullKey = keyMatch[1]; // e.g. "/lodash@4.17.21" or "lodash@4.17.21(react@18)"
-        const stripped = fullKey.replace(/^\//, '');
-        const noPeer = stripped.replace(/\(.+?\)$/, '');
-        const m = /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(noPeer);
+        // Below v6, keys have no `@`: "/express/4.18.2" or "/react-dom/18.2.0_react@18.2.0".
+        const m = isLegacy
+            ? /^\/((?:@[^/]+\/)?[^/]+)\/([^_/(]+)/.exec(fullKey)
+            : (() => {
+                const stripped = fullKey.replace(/^\//, '');
+                const noPeer = stripped.replace(/\(.+?\)$/, '');
+                return /^((?:@[^/]+\/)?[^@]+)@(.+)$/.exec(noPeer);
+            })();
         if (!m) { i++; continue; }
         const entry = { locators: [fullKey], name: m[1], version: m[2],
                         dependencies: {}, peerDependencies: {} };
@@ -369,41 +374,89 @@ function _readPnpmBlock(text, blockName) {
 }
 
 function parsePnpm(text) {
+    // Below v6, package keys have no `@` ("/express/4.18.2" instead of
+    // "/express@4.18.2") and need a different regex — see _readPnpmBlock.
+    const versionMatch = /^lockfileVersion:\s*['"]?([0-9]+(?:\.[0-9]+)?)['"]?/m.exec(text);
+    const version = versionMatch ? parseFloat(versionMatch[1]) : null;
+    const isLegacy = version !== null && version < 6;
+
     // v6 / v7 only populates `packages:`; v9 also populates `snapshots:`
     // (and is where the dependency edges live for v9). Read both — for
     // v6/v7 the second call is a no-op since `snapshots:` is absent.
-    const packagesEntries  = _readPnpmBlock(text, 'packages');
-    const snapshotsEntries = _readPnpmBlock(text, 'snapshots');
+    const packagesEntries  = _readPnpmBlock(text, 'packages', isLegacy);
+    const snapshotsEntries = _readPnpmBlock(text, 'snapshots', isLegacy);
+
+    // Recognised: numeric versions from 5.0 upward. Anything else (including
+    // a missing lockfileVersion line) warns but still returns what parsed.
+    const warning = version !== null && version >= 5.0
+        ? null
+        : { code: 'unsupported_lockfile_version', lockfile_version: versionMatch ? versionMatch[1] : null };
+
     return {
         entries: [...packagesEntries, ...snapshotsEntries],
         format: 'pnpm-lock',
+        warning,
     };
 }
 
 /**
- * Parse a package-lock.json (npm v7+).
- * Format: { "packages": { "node_modules/lodash": { "version": ..., "dependencies": {...} } } }
+ * Walk an npm lockfileVersion 1 nested `dependencies` tree (no `packages`
+ * map). Each node is `name -> {version, requires, dependencies, dev}`;
+ * `dependencies` nests a private copy when a version conflict forced npm to
+ * duplicate the package instead of hoisting it.
+ */
+function walkNpmV1Dependencies(deps, parentLocator, entries) {
+    for (const [name, info] of Object.entries(deps || {})) {
+        const locator = parentLocator ? `${parentLocator}/node_modules/${name}` : `node_modules/${name}`;
+        entries.push({
+            locators: [locator],
+            name,
+            version: info.version || '',
+            dependencies: info.requires || {},
+            peerDependencies: {},
+            dev: !!info.dev,
+        });
+        if (info.dependencies) walkNpmV1Dependencies(info.dependencies, locator, entries);
+    }
+}
+
+/**
+ * Parse a package-lock.json.
+ * lockfileVersion 2/3: { "packages": { "node_modules/lodash": { "version": ..., "dependencies": {...} } } }
+ * lockfileVersion 1: no `packages` map, only a nested `dependencies` tree —
+ * see walkNpmV1Dependencies.
  */
 function parseNpmLock(jsonStr) {
     const data = JSON.parse(jsonStr);
     const entries = [];
-    const pkgs = data.packages || {};
-    for (const [key, val] of Object.entries(pkgs)) {
-        if (key === '') continue; // root entry
-        // key looks like "node_modules/lodash" or "node_modules/@scope/pkg" or "node_modules/parent/node_modules/lodash"
-        const m = /node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(key);
-        if (!m) continue;
-        const name = m[1];
-        entries.push({
-            locators: [key],
-            name,
-            version: val.version || '',
-            dependencies: val.dependencies || {},
-            peerDependencies: val.peerDependencies || {},
-            dev: !!val.dev,
-        });
+    if (data.packages) {
+        const pkgs = data.packages;
+        for (const [key, val] of Object.entries(pkgs)) {
+            if (key === '') continue; // root entry
+            // key looks like "node_modules/lodash" or "node_modules/@scope/pkg" or "node_modules/parent/node_modules/lodash"
+            const m = /node_modules\/((?:@[^/]+\/)?[^/]+)$/.exec(key);
+            if (!m) continue;
+            const name = m[1];
+            entries.push({
+                locators: [key],
+                name,
+                version: val.version || '',
+                dependencies: val.dependencies || {},
+                peerDependencies: val.peerDependencies || {},
+                dev: !!val.dev,
+            });
+        }
+    } else if (data.dependencies) {
+        walkNpmV1Dependencies(data.dependencies, '', entries);
     }
-    return { entries, format: 'npm-lock' };
+
+    // Recognised: lockfileVersion 1, 2 and 3. Anything else warns but still
+    // returns what parsed above.
+    const warning = [1, 2, 3].includes(data.lockfileVersion)
+        ? null
+        : { code: 'unsupported_lockfile_version', lockfile_version: data.lockfileVersion ?? null };
+
+    return { entries, format: 'npm-lock', warning };
 }
 
 /* ============================================================
@@ -998,6 +1051,7 @@ function main() {
     }
 
     const errors = [];
+    const warnings = [];
     const pkgManager = args.pkgManager || detectPkgManager(args.projectPath);
 
     let manifest;
@@ -1048,6 +1102,13 @@ function main() {
                 parsedLockfile = { entries: [], format: 'bun-unsupported' };
             }
             source = parsedLockfile.format;
+            if (parsedLockfile.warning) {
+                warnings.push({
+                    code: parsedLockfile.warning.code,
+                    lockfile: lockfile.path,
+                    lockfile_version: parsedLockfile.warning.lockfile_version,
+                });
+            }
             const collected = collectParentsFromLock(parsedLockfile, args.packageName, manifest.name);
             parents = collected.parents;
             constraints = collected.constraints;
@@ -1162,6 +1223,7 @@ function main() {
         source,
         full_tree: fullTree,
         errors,
+        warnings,
     };
 
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
