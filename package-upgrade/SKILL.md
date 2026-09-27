@@ -780,6 +780,7 @@ vendor 目錄，PR diff 行數會顯著增加」。
 
 ```bash
 python scripts/python/dep_tree.py <project_path> <package_name> \
+    --pkg-manager <pkg_manager from detect_env.sh> \
     [--target-version <v>] [--no-probe]
 ```
 
@@ -2619,7 +2620,8 @@ Phase 2.1 在 session 中保留的**升級前**輸出做 delta：
 
 ```bash
 # Python
-python scripts/python/dep_tree.py <project_path> <package_name>
+python scripts/python/dep_tree.py <project_path> <package_name> \
+    --pkg-manager <pkg_manager from detect_env.sh>
 # JavaScript
 node scripts/javascript/dep_tree.js <project_path> <package_name>
 # Go
