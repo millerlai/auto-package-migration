@@ -346,3 +346,177 @@ def test_pnpm_workspace_locations_detected(
     locations = {loc["name"] for loc in ws_info["locations"]}
     assert "@x/a" in locations
     assert "@x/b" not in locations
+
+
+# --------------------------------------------------------------------------- #
+# Old lockfile formats — task 14 verification.
+# pnpm below v6 uses `/name/version` keys (no `@`); npm lockfileVersion 1 has
+# no `packages` map, only a nested `dependencies` tree. Both must parse to the
+# same express -> qs graph as a modern (v6 / v3) lockfile.
+# --------------------------------------------------------------------------- #
+
+PNPM_LOCK_V6_EXPRESS = """\
+lockfileVersion: '6.0'
+
+dependencies:
+  express:
+    specifier: ^4.18.2
+    version: 4.18.2
+
+packages:
+
+  /express@4.18.2:
+    resolution: {integrity: sha512-aaaa==}
+    dependencies:
+      qs: 6.11.0
+    dev: false
+
+  /qs@6.11.0:
+    resolution: {integrity: sha512-bbbb==}
+    dev: false
+"""
+
+
+PNPM_LOCK_V5_EXPRESS = """\
+lockfileVersion: 5.4
+
+specifiers:
+  express: ^4.18.2
+
+dependencies:
+  express: 4.18.2
+
+packages:
+
+  /express/4.18.2:
+    dependencies:
+      qs: 6.11.0
+    dev: false
+
+  /qs/6.11.0:
+    dev: false
+"""
+
+
+def _write_npm_lock_v1_express(project: Path) -> None:
+    lock = {
+        "name": project.name,
+        "version": "1.0.0",
+        "lockfileVersion": 1,
+        "requires": True,
+        "dependencies": {
+            "express": {
+                "version": "4.18.2",
+                "requires": {"qs": "6.11.0"},
+            },
+            "qs": {
+                "version": "6.11.0",
+            },
+        },
+    }
+    (project / "package-lock.json").write_text(json.dumps(lock))
+
+
+def test_pnpm_v6_express_qs_baseline(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    """Baseline the v5.4/v1 tests below are compared against."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"express": "^4.18.2"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V6_EXPRESS)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "qs")
+
+    assert out["is_transitive"] is True
+    assert "express" in out["direct_parents"]
+    assert out["recommended_strategy"] == "bump_parent"
+
+
+def test_pnpm_v5_legacy_key_format_matches_v6(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """pnpm v5.4 keys look like `/name/version` (no `@`) — must give the same result as v6."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"express": "^4.18.2"}})
+    )
+    (tmp_path / "pnpm-lock.yaml").write_text(PNPM_LOCK_V5_EXPRESS)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "qs")
+
+    assert out["pkg_manager"] == "pnpm"
+    assert out["current_version"] == "6.11.0"
+    assert out["is_transitive"] is True
+    assert "express" in out["direct_parents"]
+    assert out["recommended_strategy"] == "bump_parent"
+    assert out["warnings"] == []
+
+
+def test_npm_lockfile_v1_nested_dependencies_matches_v6(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """npm lockfileVersion 1 has no `packages` map — must walk the nested `dependencies` tree."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"express": "^4.18.2"}})
+    )
+    _write_npm_lock_v1_express(tmp_path)
+
+    out = _run(node_bin, scripts_dir, tmp_path, "qs")
+
+    assert out["pkg_manager"] == "npm"
+    assert out["current_version"] == "6.11.0"
+    assert out["is_transitive"] is True
+    assert "express" in out["direct_parents"]
+    assert out["recommended_strategy"] == "bump_parent"
+    assert out["warnings"] == []
+
+
+def test_unrecognised_lockfile_version_warns(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """An unrecognised lockfileVersion adds a warning instead of silently mis-parsing."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"lodash": "^4.17.20"}})
+    )
+    lock = {
+        "name": "x",
+        "version": "1.0.0",
+        "lockfileVersion": 99,
+        "packages": {"": {"name": "x", "version": "1.0.0"}},
+    }
+    (tmp_path / "package-lock.json").write_text(json.dumps(lock))
+
+    out = _run(node_bin, scripts_dir, tmp_path, "lodash")
+
+    assert out["warnings"] == [
+        {
+            "code": "unsupported_lockfile_version",
+            "lockfile": str(tmp_path / "package-lock.json"),
+            "lockfile_version": 99,
+        }
+    ]
+
+
+def test_npm_lockfile_missing_version_warns_with_null(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    """A package-lock.json with no `lockfileVersion` field must still carry the
+    `lockfile_version` key (as null), matching the pnpm-side fallback — not
+    silently drop the key via JSON.stringify(undefined)."""
+    (tmp_path / "package.json").write_text(
+        json.dumps({"name": "x", "dependencies": {"lodash": "^4.17.20"}})
+    )
+    lock = {
+        "name": "x",
+        "version": "1.0.0",
+        "packages": {"": {"name": "x", "version": "1.0.0"}},
+    }
+    (tmp_path / "package-lock.json").write_text(json.dumps(lock))
+
+    out = _run(node_bin, scripts_dir, tmp_path, "lodash")
+
+    assert out["warnings"] == [
+        {
+            "code": "unsupported_lockfile_version",
+            "lockfile": str(tmp_path / "package-lock.json"),
+            "lockfile_version": None,
+        }
+    ]
