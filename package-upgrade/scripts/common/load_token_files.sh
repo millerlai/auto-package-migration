@@ -18,6 +18,22 @@
 #
 # Pairs with save_token.sh, which writes values single-quoted; this loader
 # strips one surrounding pair of single/double quotes before exporting.
+#
+# D2: a key already non-empty in the environment wins over the file — a
+# `VAR=value` prefix on the calling command (an unsaved session token) is
+# never overwritten by a stale saved file sharing the same key.
+
+# token_files_for <python|js|go> - the per-language .env.<service> basenames,
+# in the same order preflight.sh / preflight_go.sh already load them. The one
+# place this list lives, so preflight and with_tokens.sh cannot drift apart.
+token_files_for() {
+    case "$1" in
+        python) echo ".env.pip .env.poetry .env.uv .env.pypi .env.jfrog" ;;
+        js)     echo ".env.jfrog .env.npm .env.github" ;;
+        go)     echo ".env.go .env.jfrog .env.github" ;;
+        *)      return 2 ;;
+    esac
+}
 
 load_token_files() {
     local project_abs="$1"; shift
@@ -50,6 +66,8 @@ load_token_files() {
                 \'*\') val="${val#\'}"; val="${val%\'}" ;;
                 \"*\") val="${val#\"}"; val="${val%\"}" ;;
             esac
+            # D2: an already-set variable wins over the file.
+            [ -n "${!key:-}" ] && continue
             export "$key=$val"
         done < "$tok_file"
         echo "(preflight) loaded $name" >&2

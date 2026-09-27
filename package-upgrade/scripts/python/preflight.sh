@@ -39,7 +39,8 @@ fi
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
 # shellcheck source=../common/load_token_files.sh
 . "$SCRIPT_DIR/../common/load_token_files.sh"
-load_token_files "$PROJECT_ABS" .env.pip .env.poetry .env.uv .env.pypi .env.jfrog
+# shellcheck disable=SC2046,SC2086 # fixed, space-separated list of basenames
+load_token_files "$PROJECT_ABS" $(token_files_for python)
 
 ENV_JSON=$(bash "$DETECT" "$PROJECT_PATH" 2>/dev/null || echo '{}')
 
