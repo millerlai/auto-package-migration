@@ -220,7 +220,7 @@ bash scripts/go/govulncheck.sh <project_path> [--cve CVE-XXXX-XXXXX]
 輸出區分：
 - `called_vulns`：call graph 證實有被呼叫 → **🔴 critical**
 - `imported_vulns`：在 dep tree 但 call graph 沒走到 → **🟡 medium**
-- `not_present`：dep tree 中沒這個套件 → 無需處理
+- `not_present`：dep tree 中沒這個套件 → 僅當 `scan_status == "ok"` 時才視為無需處理
 
 這比 OSV / NVD 描述精準，**Phase 1.B step 3 的「LLM 風險評估」要優先參考
 govulncheck 結果，不是只看 grep**。

@@ -59,6 +59,7 @@ if ! command -v govulncheck >/dev/null 2>&1; then
     cat <<EOF
 {
   "project_path": "$PROJECT_PATH",
+  "scan_status": "failed",
   "findings": [],
   "summary": {"called": 0, "imported": 0, "not_present": 0},
   "filter_cve": $([ -n "$CVE_FILTER" ] && printf '"%s"' "$CVE_FILTER" || echo "null"),
@@ -71,16 +72,19 @@ fi
 # Get version (best effort — format varies)
 GVC_VERSION=$(govulncheck -version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
 
-# Run govulncheck in JSON mode. It always exits non-zero when vulns found,
-# but stdout is still valid.
+# Run govulncheck in JSON mode. -json exits 0 regardless of findings, so any
+# non-zero exit here is a real failure (build error, network, etc.).
 RAW_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
-trap 'rm -f "$RAW_FILE" "$ERR_FILE"' EXIT
+GVC_PY_ERR_FILE=$(mktemp)
+trap 'rm -f "$RAW_FILE" "$ERR_FILE" "$GVC_PY_ERR_FILE"' EXIT
 
-govulncheck -json ./... >"$RAW_FILE" 2>"$ERR_FILE" || true
+GVC_EXIT_CODE=0
+govulncheck -json ./... >"$RAW_FILE" 2>"$ERR_FILE" || GVC_EXIT_CODE=$?
 
 # Parse stream of JSON objects into findings
-RESULT_JSON=$(GVC_RAW_PATH="$RAW_FILE" python3 - "$CVE_FILTER" "$GVC_VERSION" "$PROJECT_PATH" <<'PY' 2>/dev/null || echo '{"findings":[],"summary":{"called":0,"imported":0,"not_present":0},"errors":["parse failure"]}'
+RESULT_JSON=$(GVC_RAW_PATH="$RAW_FILE" GVC_ERR_PATH="$ERR_FILE" GVC_EXIT_CODE="$GVC_EXIT_CODE" \
+    python3 - "$CVE_FILTER" "$GVC_VERSION" "$PROJECT_PATH" <<'PY' 2>"$GVC_PY_ERR_FILE"
 import json, sys, os, re
 
 cve_filter = sys.argv[1] or ""
@@ -88,10 +92,36 @@ gvc_version = sys.argv[2] or ""
 project_path = sys.argv[3]
 
 raw_path = os.environ.get("GVC_RAW_PATH", "")
+err_path = os.environ.get("GVC_ERR_PATH", "")
+exit_code = int(os.environ.get("GVC_EXIT_CODE", "0") or "0")
 try:
     text = open(raw_path, "r", encoding="utf-8").read() if raw_path else ""
 except Exception:
     text = ""
+
+# govulncheck itself failed: scan_status is "failed" regardless of what (if
+# anything) is on stdout, and the not_present classification is never used.
+scan_status = "ok" if exit_code == 0 else "failed"
+errors = []
+
+
+def _redact_creds(s):
+    """Strip embedded basic-auth credentials (scheme://user:pass@host) from
+    text before it is kept in this wrapper's own stdout. A failing `go`
+    module fetch can echo the failing GOPROXY URL verbatim, and a corporate
+    proxy may carry credentials inline.
+    """
+    return re.sub(r"://[^/@\s]+@", "://", s)
+
+
+if scan_status == "failed":
+    try:
+        with open(err_path, "r", encoding="utf-8", errors="replace") as fh:
+            err_lines = [ln.rstrip("\n") for ln in fh.readlines()]
+        tail = _redact_creds("\n".join(err_lines[-20:]))
+        errors.append(f"govulncheck exited {exit_code}:\n" + tail)
+    except Exception as e:
+        errors.append(f"govulncheck exited {exit_code}; could not read stderr: {e}")
 
 decoder = json.JSONDecoder()
 items = []
@@ -209,7 +239,7 @@ for osv_id, a in agg.items():
 
     findings.append(finding)
 
-if cve_filter and not findings:
+if cve_filter and not findings and scan_status == "ok":
     findings.append({
         "osv_id": "",
         "aliases": [cve_filter],
@@ -227,12 +257,18 @@ for f in findings:
 print(json.dumps({
     "project_path": project_path,
     "govulncheck_version": gvc_version,
+    "scan_status": scan_status,
     "findings": findings,
     "summary": summary,
     "filter_cve": cve_filter or None,
-    "errors": [],
+    "errors": errors,
 }))
 PY
-)
+) || {
+    PY_ERR_TEXT=$(tail -20 "$GVC_PY_ERR_FILE" | python3 -c 'import json, sys; print(json.dumps(sys.stdin.read()))')
+    RESULT_JSON=$(printf '{"project_path": %s, "findings": [], "summary": {"called": 0, "imported": 0, "not_present": 0}, "filter_cve": null, "scan_status": "failed", "errors": [%s]}' \
+        "$(printf '%s' "$PROJECT_PATH" | python3 -c 'import json, sys; print(json.dumps(sys.stdin.read()))')" \
+        "$PY_ERR_TEXT")
+}
 
 echo "$RESULT_JSON"

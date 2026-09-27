@@ -71,10 +71,12 @@ if ! command -v pip-audit >/dev/null 2>&1; then
 {
   "project_path": "$PROJECT_ABS",
   "tool": "pip-audit",
+  "scan_status": "failed",
   "findings": [],
   "summary": {"called": 0, "imported": 0, "not_present": 0},
   "filter_cve": $([ -n "$CVE_FILTER" ] && printf '"%s"' "$CVE_FILTER" || echo "null"),
   "post_upgrade": $POST_UPGRADE,
+  "warnings": [],
   "errors": ["pip-audit not installed; install: pip install pip-audit"]
 }
 EOF
@@ -83,18 +85,22 @@ fi
 
 PA_VERSION=$(pip-audit --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
 
-# Run pip-audit. It exits non-zero when vulns are found but stdout is valid JSON.
+# Run pip-audit. It exits non-zero both when vulns are found (its normal
+# outcome) and on a hard failure (e.g. it aborts on an editable install), so
+# the exit code alone can't tell those apart — scan_status below is decided
+# from the output instead.
+# --format json: machine-readable output
 RAW_FILE=$(mktemp)
 ERR_FILE=$(mktemp)
 trap 'rm -f "$RAW_FILE" "$ERR_FILE"' EXIT
 
-# --strict: include findings without known fix versions
-# --format json: machine-readable output
-# --disable-pip: don't shell out to pip for resolution (faster, uses installed env)
-(cd "$PROJECT_ABS" && pip-audit --format json --strict 2>"$ERR_FILE" >"$RAW_FILE") || true
+PA_EXIT_CODE=0
+(cd "$PROJECT_ABS" && pip-audit --format json 2>"$ERR_FILE" >"$RAW_FILE") || PA_EXIT_CODE=$?
 
 # Hand off to Python for parsing + reachability cross-reference.
 PA_RAW_PATH="$RAW_FILE" \
+PA_ERR_PATH="$ERR_FILE" \
+PA_EXIT_CODE="$PA_EXIT_CODE" \
 PA_AST_SCANNER="$AST_SCANNER" \
 PA_PROJECT_PATH="$PROJECT_ABS" \
 PA_CVE_FILTER="$CVE_FILTER" \
@@ -108,6 +114,8 @@ import subprocess
 import sys
 
 raw_path     = os.environ["PA_RAW_PATH"]
+err_path     = os.environ.get("PA_ERR_PATH", "")
+exit_code    = int(os.environ.get("PA_EXIT_CODE", "0") or "0")
 ast_scanner  = os.environ["PA_AST_SCANNER"]
 project_path = os.environ["PA_PROJECT_PATH"]
 cve_filter   = os.environ.get("PA_CVE_FILTER", "")
@@ -115,6 +123,16 @@ tool_version = os.environ.get("PA_TOOL_VERSION", "")
 post_upgrade = os.environ.get("PA_POST_UPGRADE", "false") == "true"
 
 errors = []
+
+
+def _redact_creds(s: str) -> str:
+    """Strip embedded basic-auth credentials (scheme://user:pass@host) from
+    text before it is kept in this wrapper's own stdout. pip-audit's stderr
+    can echo the failing index URL verbatim, and a private index (e.g. an
+    Artifactory JFROG_TOKEN-authenticated one) may carry the token inline.
+    """
+    return re.sub(r"://[^/@\s]+@", "://", s)
+
 
 try:
     with open(raw_path, "r", encoding="utf-8") as fh:
@@ -133,7 +151,33 @@ if text:
 
 # pip-audit JSON shape (current): {"dependencies": [{"name", "version",
 # "vulns": [{"id", "fix_versions", "aliases", "description"}]}]}
-deps = audit.get("dependencies", []) if isinstance(audit, dict) else []
+raw_deps = audit.get("dependencies") if isinstance(audit, dict) else None
+
+# The run failed when stdout is empty, or isn't a JSON object with a
+# `dependencies` list — not from exit_code alone (pip-audit also exits 1
+# for its normal "vulnerabilities found" outcome).
+scan_status = "ok"
+if not text or not isinstance(audit, dict) or not isinstance(raw_deps, list):
+    scan_status = "failed"
+
+# A malformed (present but non-list) `dependencies` value must not reach the
+# per-dependency loop below — it would raise before the final JSON is printed.
+deps = raw_deps if scan_status == "ok" else []
+
+if scan_status == "failed":
+    try:
+        with open(err_path, "r", encoding="utf-8", errors="replace") as fh:
+            err_lines = [ln.rstrip("\n") for ln in fh.readlines()]
+        tail = _redact_creds("\n".join(err_lines[-20:]))
+        errors.append(f"pip-audit exited {exit_code}:\n" + tail)
+    except Exception as e:
+        errors.append(f"pip-audit exited {exit_code}; could not read stderr: {e}")
+
+warnings = [
+    _redact_creds(f"{dep.get('name', '') or '<unknown>'}: {dep['skip_reason']}")
+    for dep in deps
+    if isinstance(dep, dict) and dep.get("skip_reason")
+]
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +381,9 @@ for dep in deps:
 
 # If --cve filter was set but produced no rows, emit a synthetic not_present
 # finding so the LLM can report "CVE-XXX is not present in this project".
-if cve_filter and not findings:
+# Only when the scan actually ran — a failed scan must never be read as
+# "not present".
+if cve_filter and not findings and scan_status == "ok":
     findings.append({
         "osv_id": "",
         "aliases": [cve_filter],
@@ -360,10 +406,12 @@ print(json.dumps({
     "project_path":  project_path,
     "tool":          "pip-audit",
     "tool_version":  tool_version,
+    "scan_status":   scan_status,
     "findings":      findings,
     "summary":       summary,
     "filter_cve":    cve_filter or None,
     "post_upgrade":  post_upgrade,
+    "warnings":      warnings,
     "errors":        errors,
 }, indent=2))
 PY
