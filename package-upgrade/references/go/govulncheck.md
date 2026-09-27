@@ -86,7 +86,7 @@ vulnerabilities" vs "N other vulnerabilities exist in packages you import"。
 |------|------|-----------|
 | `called` | call graph 走到漏洞函式 | **critical** — 必須升 |
 | `imported` | dep tree 含套件，但沒呼叫到漏洞函式 | **medium** — 建議升（防後續 code 改動意外觸發） |
-| `not_present` | dep tree 不含此套件 | n/a — 不需處理 |
+| `not_present` | dep tree 不含此套件 | n/a — 僅當 `scan_status == "ok"` 且 `errors` 為空時才不需處理 |
 
 CVE 來自 Phase 1.B 時，**LLM 風險評估要優先用 govulncheck 結果**，不要再用
 `grep -r` 自己判斷 — 後者只看 import 不看 call graph，會把 imported 誤判成 critical。
@@ -142,6 +142,7 @@ bash scripts/go/govulncheck.sh <project_path> --cve CVE-2024-24786
 LLM 看到 `match: "called"` → 走 critical 流程，直接進 Phase 2。
 LLM 看到 `match: "imported"` → 告知使用者「漏洞存在但 call graph 不可達，仍建議升以防後續 code 改動」，問是否繼續。
 LLM 看到 `match: "not_present"` → 告知「此 CVE 不影響本專案」，問是否要強制升（可能是合規要求）。
+僅當 `scan_status == "ok"` 且 `errors` 為空時才適用；否則告知使用者掃描失敗，改走 grep-only 模式（同 SKILL.md 的規則）。
 
 ---
 
@@ -153,7 +154,7 @@ LLM 看到 `match: "not_present"` → 告知「此 CVE 不影響本專案」，�
 bash scripts/go/govulncheck.sh <project_path> --cve CVE-2024-24786 --post-upgrade
 ```
 
-期望輸出：`match: "not_present"`（漏洞版本已不在 dep tree）。
+期望輸出：`match: "not_present"`（漏洞版本已不在 dep tree）。此結果僅在 `scan_status == "ok"` 時才算驗證成功；若 `scan_status == "failed"`，代表這次 recheck 並未真正執行，不可回報升級已驗證。
 
 若仍出現：
 - transitive 路徑還有舊版本 → `go mod why <pkg>` 找出來，可能需要升 parent

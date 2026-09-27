@@ -478,6 +478,9 @@ bash scripts/go/govulncheck.sh <project_path> --cve <CVE-ID>
 
 `call_sites` 提供精確的 `file:line:function`，比 grep 結果可靠 — 直接列在報告中。
 
+**掃描失敗時的規則**：若輸出的 `scan_status != "ok"`，或 `errors` 非空，**絕不能**
+判定為 `not_present`。告知使用者掃描失敗，並降級為既有的 grep-only 模式繼續分析。
+
 **`govulncheck_available == false`**: 告知使用者降級為 grep-only 模式，繼續走原本
 LLM 推理流程，但在 Phase 7.1 報告中標明缺少 reachability 分析。
 
@@ -502,6 +505,9 @@ bash scripts/python/pip_audit.sh <project_path> --cve <CVE-ID>
 
 精度低於 Go (Python 動態本質)，但仍能把純 transitive 噪音篩掉。`extracted_symbols`
 與 `import_names` 都列出來，方便 LLM 在報告中說明 reachability 推論依據。
+
+**掃描失敗時的規則**：若輸出的 `scan_status != "ok"`，或 `errors` 非空，**絕不能**
+判定為 `not_present`。告知使用者掃描失敗，並降級為既有的 grep-only 模式繼續分析。
 
 **`pip-audit` 未安裝時**: 告知使用者降級為 grep-only 模式，並建議
 `pip install pip-audit` 後重跑。
@@ -2260,6 +2266,8 @@ bash scripts/go/run_tests.sh <project_path> --all --race
 
 **升完後若有 `govulncheck`**: 再跑一次 `bash scripts/go/govulncheck.sh <path> --cve <ID>
 --post-upgrade`，期望 `match: "not_present"`。仍出現代表升級沒生效，回 Phase 5 排查。
+只有當 `scan_status == "ok"` 時，才能把 `not_present` 視為升級成功；`scan_status ==
+"failed"` 代表這次重跑本身失敗，不能當作已修復。
 
 ### Step 6.3: 測試失敗診斷
 
