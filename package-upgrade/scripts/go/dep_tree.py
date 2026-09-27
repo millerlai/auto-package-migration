@@ -164,6 +164,63 @@ def version_tuple(v: str) -> tuple:
 # --------------------------------------------------------------------------- #
 
 
+def parse_gomod_json(project_path: str) -> dict | None:
+    """Parse go.mod authoritatively via `go mod edit -json`.
+
+    Handles comments and quoting the way the toolchain does, so callers
+    should try this before falling back to the regex parser (`parse_gomod`).
+    Runs with `GOTOOLCHAIN=local` so it never triggers a toolchain download.
+    Returns `parse_gomod`'s shape, or None on any failure (missing `go`,
+    non-zero exit, unparseable JSON, missing module path).
+    """
+    rc, out, _ = run(
+        ["go", "mod", "edit", "-json"],
+        cwd=project_path,
+        timeout=15,
+        env={"GOTOOLCHAIN": "local"},
+    )
+    if rc != 0:
+        return None
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+
+    module = (data.get("Module") or {}).get("Path")
+    if not module:
+        return None
+
+    result = {
+        "module": module,
+        "go": data.get("Go", "") or "",
+        "toolchain": data.get("Toolchain", "") or "",
+        "direct": {},
+        "indirect": {},
+        "replace": [],
+        "exclude": [],
+    }
+    for r in data.get("Require") or []:
+        r_path, r_ver = r.get("Path", ""), r.get("Version", "")
+        if r.get("Indirect"):
+            result["indirect"][r_path] = r_ver
+        else:
+            result["direct"][r_path] = r_ver
+    for r in data.get("Replace") or []:
+        old, new = r.get("Old") or {}, r.get("New") or {}
+        result["replace"].append(
+            {
+                "old": old.get("Path", ""),
+                "old_version": old.get("Version", ""),
+                "new": new.get("Path", ""),
+                "new_version": new.get("Version", ""),
+            }
+        )
+    for e in data.get("Exclude") or []:
+        result["exclude"].append({"path": e.get("Path", ""), "version": e.get("Version", "")})
+
+    return result
+
+
 def parse_gomod(path: str) -> dict:
     """Parse go.mod into structured form.
 
@@ -210,8 +267,10 @@ def parse_gomod(path: str) -> dict:
             path, ver, tail = m.group(1), m.group(2), m.group(3)
             yield path, ver, "// indirect" in tail
 
-        # Block form: `require ( ... )`
-        for blk in re.finditer(r"^require\s*\(\s*$(.*?)^\)\s*$", text, re.M | re.S):
+        # Block form: `require ( ... )`. The header may carry a trailing
+        # `// comment`; without tolerating it, the whole block fails to
+        # match and every entry inside silently disappears.
+        for blk in re.finditer(r"^require\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$", text, re.M | re.S):
             body = blk.group(1)
             for raw in body.splitlines():
                 line = raw.strip()
@@ -230,20 +289,22 @@ def parse_gomod(path: str) -> dict:
         else:
             out["direct"][path] = ver
 
-    # replace directives
+    # replace directives. `//` cannot appear in a module path or version, so
+    # a trailing comment is safe to tolerate/strip before matching.
     def iter_replace_entries():
         for m in re.finditer(
-            r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$",
+            r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?(?:\s*//[^\n]*)?\s*$",
             text,
             re.M,
         ):
             yield m.group(1), m.group(2) or "", m.group(3), m.group(4) or ""
-        for blk in re.finditer(r"^replace\s*\(\s*$(.*?)^\)\s*$", text, re.M | re.S):
+        for blk in re.finditer(r"^replace\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$", text, re.M | re.S):
             body = blk.group(1)
             for raw in body.splitlines():
                 line = raw.strip()
                 if not line or line.startswith("//"):
                     continue
+                line = line.split("//", 1)[0].strip()
                 mm = re.match(r"(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$", line)
                 if mm:
                     yield mm.group(1), mm.group(2) or "", mm.group(3), mm.group(4) or ""
@@ -261,7 +322,7 @@ def parse_gomod(path: str) -> dict:
     # exclude directives
     for m in re.finditer(r"^\s*exclude\s+(\S+)\s+(\S+)", text, re.M):
         out["exclude"].append({"path": m.group(1), "version": m.group(2)})
-    for blk in re.finditer(r"^exclude\s*\(\s*$(.*?)^\)\s*$", text, re.M | re.S):
+    for blk in re.finditer(r"^exclude\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$", text, re.M | re.S):
         body = blk.group(1)
         for raw in body.splitlines():
             line = raw.strip()
@@ -441,8 +502,11 @@ def parse_target_in_parent_mod(mod_text: str, target_base: str) -> tuple[str, di
             require_version = ver
             break
     if not require_version:
-        # Block-form requires
-        for blk in re.finditer(r"^require\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S):
+        # Block-form requires. Tolerate a trailing comment on the header, the
+        # same way parse_gomod does.
+        for blk in re.finditer(
+            r"^require\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$", mod_text, re.M | re.S
+        ):
             for raw in blk.group(1).splitlines():
                 line = raw.strip().split("//")[0].strip()
                 if not line:
@@ -454,9 +518,10 @@ def parse_target_in_parent_mod(mod_text: str, target_base: str) -> tuple[str, di
             if require_version:
                 break
 
-    # Single-line replaces
+    # Single-line replaces. `//` cannot appear in a module path or version,
+    # so a trailing comment is safe to tolerate.
     for m in re.finditer(
-        r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$",
+        r"^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?(?:\s*//[^\n]*)?\s*$",
         mod_text,
         re.M,
     ):
@@ -467,7 +532,9 @@ def parse_target_in_parent_mod(mod_text: str, target_base: str) -> tuple[str, di
             }
             break
     if not replace_info:
-        for blk in re.finditer(r"^replace\s*\(\s*$(.*?)^\)\s*$", mod_text, re.M | re.S):
+        for blk in re.finditer(
+            r"^replace\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$", mod_text, re.M | re.S
+        ):
             for raw in blk.group(1).splitlines():
                 line = raw.strip().split("//")[0].strip()
                 if not line:
@@ -1029,7 +1096,7 @@ def main() -> int:
         )
         return 1
 
-    gomod = parse_gomod(str(Path(project, "go.mod")))
+    gomod = parse_gomod_json(project) or parse_gomod(str(Path(project, "go.mod")))
     if "error" in gomod:
         errors.append(gomod["error"])
         gomod = {
