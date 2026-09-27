@@ -11,6 +11,9 @@
 # Redaction categories (each replaced with a placeholder):
 #   /Users/<name>/..., /home/<name>/..., C:\Users\<name>\...   -> <path>
 #   token-shaped strings (gh_*, ghp_*, AKIA*, xoxb-*, JWT, etc.) -> HALT (exit 5)
+#   credentials in URLs (scheme://user:pass@host) and npm registry auth keys
+#     (:_authToken= / :_auth= / :_password=) -> HALT (exit 5); ${VAR} and
+#     <token> placeholders are skipped
 #   common token-bearing lines (TOKEN=..., api_key=..., password=...) -> <redacted>
 #   Jira keys ([A-Z]{2,}-\d+) -> <JIRA-KEY>
 #   email addresses -> <email>
@@ -97,6 +100,26 @@ for m in re.finditer(r"(?<![A-Za-z0-9_])[A-Za-z0-9_\-+/=]{32,}(?![A-Za-z0-9_])",
     if has_lower and has_upper and has_digit:
         line_no = text[:m.start()].count("\n") + 1
         hard_hits.append((line_no, "high-entropy secret", tok[:8] + "..."))
+
+# --- CREDENTIALS IN URLS / NPM REGISTRY AUTH KEYS ---
+# Short passwords with punctuation (`https://ci:S3cr3t!x@host/`) slip past the
+# high-entropy heuristic, and the email rule below would only eat the tail of
+# the password before '@'. Userinfo runs greedily to the last '@' before the
+# host, so a raw '@' inside the password is still covered. ${VAR} / <token>
+# placeholders are config examples, not credentials — don't halt on them.
+# The reported snippet stops where the value starts, so it never echoes it.
+PLACEHOLDER = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|<[^<>\s]*>")
+CREDENTIAL_PATTERNS = [
+    (r"(?i)\b[a-z][a-z0-9+.\-]*://[^/\s:@]*:([^/\s]*)@", "url credentials"),
+    (r"(?i):_(?:authToken|auth|password)[ \t]*=[ \t]*(\S+)", "npm registry auth key"),
+]
+for pattern, label in CREDENTIAL_PATTERNS:
+    for m in re.finditer(pattern, text):
+        value = m.group(1)
+        if not value or PLACEHOLDER.fullmatch(value):
+            continue
+        line_no = text[:m.start()].count("\n") + 1
+        hard_hits.append((line_no, label, m.group(0)[: m.start(1) - m.start()] + "..."))
 
 if hard_hits:
     print("HALT: suspected secret/token detected in feedback draft.", file=sys.stderr)

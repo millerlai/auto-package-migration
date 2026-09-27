@@ -63,6 +63,46 @@ def test_halts_on_bearer_header(bash_bin, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# HALT — credentials embedded in URLs / npm registry auth keys
+# (short passwords with punctuation slip past the high-entropy heuristic)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "line, password",
+    [
+        (
+            "npm config set registry https://ci:S3cr3t!Tok3n(x)@npm.internal.example.org/",
+            "S3cr3t",
+        ),
+        ("https://admin:Pa$$w0rd#2024@pypi.internal.example.org/simple", "Pa$$w0rd"),
+        # '@' inside the password: userinfo runs to the last '@' before the host
+        ("https://user:p@ss@host.example.org/x", "p@ss"),
+    ],
+)
+def test_halts_on_url_credentials(bash_bin, tmp_path, line, password):
+    res = _run(bash_bin, tmp_path, f"Registry setup: {line}")
+    assert res.returncode == HALT_EXIT, res.stderr
+    assert "HALT" in res.stderr
+    # The HALT report itself must not echo the credential back.
+    assert password not in res.stderr
+    assert password not in res.stdout
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "//npm.internal.example.org/:_authToken=abc123",
+        "//npm.internal.example.org/repo/:_password=c2VjcmV0",
+        "//npm.internal.example.org/:_auth=dXNlcjpwYXNz",
+    ],
+)
+def test_halts_on_npm_registry_auth_key(bash_bin, tmp_path, line):
+    res = _run(bash_bin, tmp_path, f"My .npmrc has {line}")
+    assert res.returncode == HALT_EXIT, res.stderr
+
+
+# --------------------------------------------------------------------------- #
 # Must NOT halt — things that legitimately appear in upgrade feedback
 # --------------------------------------------------------------------------- #
 
@@ -86,6 +126,27 @@ def test_plain_prose_does_not_halt(bash_bin, tmp_path):
     )
     assert res.returncode == 0, res.stderr
     assert "retry" in res.stdout
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # userinfo without a password
+        "Clone via ssh://git@github.com/owner/repo.git",
+        # '@' only in the query string, not in userinfo
+        "See https://host.example.org/p?email=a@b.com",
+        # host:port is not userinfo
+        "Registry is https://registry.example.org:8443/npm/",
+        # placeholders are config examples, not credentials
+        "Set registry https://ci:${NPM_PASS}@npm.example.org/",
+        "Use https://<user>:<token>@npm.example.org/",
+        "//npm.example.org/:_authToken=${JFROG_TOKEN}",
+        "//npm.example.org/:_authToken=<token>",
+    ],
+)
+def test_url_and_npmrc_non_secrets_do_not_halt(bash_bin, tmp_path, line):
+    res = _run(bash_bin, tmp_path, line)
+    assert res.returncode == 0, res.stderr
 
 
 # --------------------------------------------------------------------------- #
