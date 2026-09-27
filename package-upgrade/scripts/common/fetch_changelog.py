@@ -20,15 +20,38 @@ particularly useful for packages that don't publish formal release notes
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from typing import Optional
 
 import requests
 
+_GITHUB_REPO_RE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?(?=/|$)")
 
-def fetch_from_pypi(package_name: str) -> Optional[tuple[str, str, str]]:
+
+def _extract_owner_repo(url: str) -> Optional[tuple[str, str]]:
+    match = _GITHUB_REPO_RE.search(url)
+    if not match:
+        return None
+    return match.group(1).lower(), match.group(2).lower()
+
+
+def _same_github_repo(url_a: str, url_b: str) -> bool:
+    """Case-insensitive GitHub owner/repo comparison, ignoring `.git` and a
+    trailing slash (both stripped already by `_GITHUB_REPO_RE`'s boundary)."""
+    a = _extract_owner_repo(url_a)
+    b = _extract_owner_repo(url_b)
+    return a is not None and a == b
+
+
+def fetch_from_pypi(package_name: str, git_repo_url: str) -> Optional[tuple[str, str, str]]:
     """Try to fetch changelog from PyPI metadata.
+
+    Only trusted when the PyPI project's `project_urls` or `home_page` points
+    at the same GitHub repo as `git_repo_url` — otherwise a same-named but
+    unrelated PyPI project (e.g. `semver` vs. npm's `node-semver`) would be
+    reported as authoritative.
 
     Returns: (source_label, source_url, content) or None
     """
@@ -38,7 +61,13 @@ def fetch_from_pypi(package_name: str) -> Optional[tuple[str, str, str]]:
         response.raise_for_status()
 
         data = response.json()
-        project_urls = data.get("info", {}).get("project_urls", {})
+        info = data.get("info") or {}
+        project_urls = info.get("project_urls") or {}
+        home_page = info.get("home_page") or ""
+
+        candidates = [u for u in list(project_urls.values()) + [home_page] if u]
+        if not any(_same_github_repo(c, git_repo_url) for c in candidates):
+            return None
 
         # Look for common changelog URL keys
         changelog_keys = ["Changelog", "Change Log", "CHANGELOG", "Release Notes", "What's New"]
@@ -54,12 +83,67 @@ def fetch_from_pypi(package_name: str) -> Optional[tuple[str, str, str]]:
                     )
 
         return None
-    except (requests.RequestException, KeyError, ValueError):
+    except (requests.RequestException, KeyError, ValueError, TypeError):
         return None
 
 
-def fetch_from_github_releases(repo_url: str) -> Optional[tuple[str, str, str]]:
+_RELEASE_PAGE_CAP = 10  # C9 / budgets: 10 pages x per_page=100 = 1000 releases
+
+
+def _version_key(tag: str) -> tuple[int, ...]:
+    """Best-effort dotted-integer key for ordering release tags (D7).
+
+    Mirrors `python/dep_tree.py`'s `version_tuple`: strips a leading `v`,
+    `release-` or `release/`, then reads dotted integers. Returns () when the
+    tag does not parse, so an odd tag scheme can only over-include releases
+    in the range filter, never silently drop them.
+    """
+    if not tag:
+        return ()
+    t = tag.strip()
+    for prefix in ("release-", "release/", "v"):
+        if t.lower().startswith(prefix):
+            t = t[len(prefix) :]
+            break
+    match = re.match(r"^(\d+(?:\.\d+)*)", t)
+    if not match:
+        return ()
+    parts = []
+    for p in match.group(1).split("."):
+        if not p.isdigit():
+            return ()
+        parts.append(int(p))
+    return tuple(parts)
+
+
+def _in_range(
+    tag: str, old_key: Optional[tuple[int, ...]], new_key: Optional[tuple[int, ...]]
+) -> bool:
+    """Keep a tag when its key is unparseable (D7: over-include) or falls in (old, new]."""
+    key = _version_key(tag)
+    if not key:
+        return True
+    if old_key and key <= old_key:
+        return False
+    if new_key and key > new_key:
+        return False
+    return True
+
+
+def fetch_from_github_releases(
+    repo_url: str,
+    old_version: Optional[str] = None,
+    new_version: Optional[str] = None,
+) -> Optional[tuple[str, str, str]]:
     """Try to fetch changelog from GitHub Releases API.
+
+    Paginates at `per_page=100`, following `response.links["next"]`, and
+    stops once a release matching `old_version` has been seen or after
+    `_RELEASE_PAGE_CAP` pages. When both `old_version` and `new_version` are
+    given, only releases in (old, new] are kept and the output is prefixed
+    with the covered range. If `old_version` was never reached, the output
+    is flagged with a partial-coverage marker instead of being reported as
+    complete (issue-68.md T13).
 
     Returns: (source_label, source_url, content) or None
     """
@@ -74,16 +158,76 @@ def fetch_from_github_releases(repo_url: str) -> Optional[tuple[str, str, str]]:
         api_url = f"https://api.github.com/repos/{owner}/{repo}/releases"
         human_url = f"https://github.com/{owner}/{repo}/releases"
 
-        response = requests.get(api_url, timeout=10)
-        response.raise_for_status()
+        old_key = _version_key(old_version) if old_version else None
+        new_key = _version_key(new_version) if new_version else None
+        # Reuse _resolve_tag's candidate forms so an exact-string match still
+        # works when old_version itself doesn't parse as a dotted version.
+        old_candidates = (
+            {f"v{old_version}", old_version, f"release-{old_version}", f"release/{old_version}"}
+            if old_version
+            else set()
+        )
 
-        releases = response.json()
+        releases: list = []
+        partial = False
+        url: Optional[str] = api_url
+        params: Optional[dict] = {"per_page": "100"}
+
+        for page in range(1, _RELEASE_PAGE_CAP + 1):
+            assert url is not None  # only unset when we've already broken out below
+            try:
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+            except requests.RequestException:
+                if page == 1:
+                    return None
+                if old_version:
+                    partial = True
+                break
+
+            page_releases = response.json()
+            if not isinstance(page_releases, list):
+                break
+            releases.extend(page_releases)
+
+            old_seen = False
+            if old_version:
+                for r in page_releases:
+                    tag = r.get("tag_name", "")
+                    rkey = _version_key(tag)
+                    if tag in old_candidates or (old_key and rkey and rkey <= old_key):
+                        old_seen = True
+                        break
+            if old_seen:
+                break
+
+            next_link = response.links.get("next")
+            if not next_link:
+                if old_version:
+                    partial = True
+                break
+            url = next_link["url"]
+            params = None  # the `next` URL already carries the query string
+        else:
+            if old_version:
+                partial = True
+
         if not releases:
             return None
 
+        if old_version and new_version:
+            releases = [r for r in releases if _in_range(r.get("tag_name", ""), old_key, new_key)]
+            if not releases:
+                return None
+
         # Format releases into changelog
-        changelog_parts = [f"# Changelog from GitHub Releases ({human_url})\n"]
-        for release in releases[:50]:  # Limit to recent 50 releases
+        changelog_parts = []
+        if old_version and new_version:
+            changelog_parts.append(f"Covered range: ({old_version}, {new_version}]")
+        if partial:
+            changelog_parts.append("<!-- changelog_coverage: partial -->")
+        changelog_parts.append(f"# Changelog from GitHub Releases ({human_url})\n")
+        for release in releases:
             tag = release.get("tag_name", "Unknown")
             name = release.get("name", tag)
             body = release.get("body", "No release notes")
@@ -258,31 +402,47 @@ def fetch_from_github_tag_annotation(repo_url: str, version: str) -> Optional[tu
         return None
 
 
-def main():
-    if len(sys.argv) < 3:
-        print(
-            "Usage: python fetch_changelog.py <package_name> <git_repo_url> [<old_version> <new_version>]",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Fetch changelog for a package (Python, JavaScript or Go).",
+    )
+    parser.add_argument("package_name")
+    parser.add_argument("git_repo_url")
+    parser.add_argument("old_version", nargs="?", default=None)
+    parser.add_argument("new_version", nargs="?", default=None)
+    parser.add_argument(
+        "--ecosystem",
+        choices=["pypi", "npm", "go"],
+        default=None,
+        help="restricts step 1 (PyPI metadata) to pypi; no flag still tries it, "
+        "behind the repo-identity guard",
+    )
+    return parser
 
-    package_name = sys.argv[1]
-    git_repo_url = sys.argv[2]
-    old_version = sys.argv[3] if len(sys.argv) > 4 else None
-    new_version = sys.argv[4] if len(sys.argv) > 4 else None
+
+def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    args = build_arg_parser().parse_args()
+
+    package_name = args.package_name
+    git_repo_url = args.git_repo_url
+    old_version = args.old_version
+    new_version = args.new_version
 
     result = None
     attempted = []
 
     print("# Attempting to fetch changelog...\n", file=sys.stderr)
-    print("Trying PyPI metadata...", file=sys.stderr)
-    attempted.append("PyPI project_urls.Changelog")
-    result = fetch_from_pypi(package_name)
+
+    if args.ecosystem in (None, "pypi"):
+        print("Trying PyPI metadata...", file=sys.stderr)
+        attempted.append("PyPI project_urls.Changelog")
+        result = fetch_from_pypi(package_name, git_repo_url)
 
     if not result:
         print("Trying GitHub Releases API...", file=sys.stderr)
         attempted.append("GitHub Releases API")
-        result = fetch_from_github_releases(git_repo_url)
+        result = fetch_from_github_releases(git_repo_url, old_version, new_version)
 
     if not result:
         print("Trying common changelog files...", file=sys.stderr)

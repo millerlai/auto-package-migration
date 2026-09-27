@@ -94,6 +94,16 @@ class TestDesiredEntries:
         for gh_entry in gp.GH_ALLOW.values():
             assert gh_entry in allow
 
+    def test_both_interpreter_allow_rules_present_global(self):
+        allow, _ = gp.desired_entries("global", "none")
+        assert "Bash(python ~/.claude/skills/package-upgrade/scripts/*:*)" in allow
+        assert "Bash(python3 ~/.claude/skills/package-upgrade/scripts/*:*)" in allow
+
+    def test_both_interpreter_allow_rules_present_project(self):
+        allow, _ = gp.desired_entries("project", "none")
+        assert "Bash(python .claude/skills/package-upgrade/scripts/*:*)" in allow
+        assert "Bash(python3 .claude/skills/package-upgrade/scripts/*:*)" in allow
+
 
 # --------------------------------------------------------------------------- #
 # merge — idempotency + ordering
@@ -278,6 +288,30 @@ class TestMergeStopHook:
         cmd = group["hooks"][0]["command"]
         assert gp.HOOK_MARKER in cmd
         assert ".claude/skills/package-upgrade" in cmd
+
+    def test_build_stop_hook_uses_python_on_windows(self, monkeypatch):
+        monkeypatch.setattr(gp.os, "name", "nt")
+        cmd = gp.build_stop_hook("project")["hooks"][0]["command"]
+        assert cmd.startswith('python "')
+
+    def test_build_stop_hook_uses_python3_elsewhere(self, monkeypatch):
+        monkeypatch.setattr(gp.os, "name", "posix")
+        cmd = gp.build_stop_hook("project")["hooks"][0]["command"]
+        assert cmd.startswith('python3 "')
+
+    def test_replaces_old_python3_hook_on_windows(self, monkeypatch):
+        monkeypatch.setattr(gp.os, "name", "posix")
+        settings: dict = {}
+        gp.merge_stop_hook(settings, "project")  # installed with python3
+        old_cmd = _stop_commands(settings)[0]
+        assert old_cmd.startswith("python3 ")
+
+        monkeypatch.setattr(gp.os, "name", "nt")
+        changed = gp.merge_stop_hook(settings, "project")
+        assert changed is True
+        cmds = _stop_commands(settings)
+        assert len(cmds) == 1
+        assert cmds[0].startswith('python "')
 
     def test_adds_when_absent(self):
         settings: dict = {}

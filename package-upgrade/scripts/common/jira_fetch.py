@@ -136,6 +136,7 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <site_host> <issue_key>", file=sys.stderr)
         print("Example: jira_fetch.py trendmicro.atlassian.net V1E-148968", file=sys.stderr)

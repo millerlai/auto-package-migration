@@ -105,12 +105,13 @@ bash scripts/javascript/git_diff.sh <repo_url> <old_version> <new_version>
 
 執行（與 Python 共用）：
 ```bash
-python scripts/common/fetch_changelog.py <package_name> <git_repo_url>
+python scripts/common/fetch_changelog.py <package_name> <git_repo_url> --ecosystem npm
 ```
 
-對 npm 套件 `fetch_changelog.py` 仍然管用 — 流程是 PyPI → GitHub Releases → repo CHANGELOG。
-PyPI 找不到（這是 JS 套件）會跳過，直接走 GitHub Releases。GitHub Releases 對 JS 生態
-覆蓋率很高（大多數套件都用 release-please / semantic-release 自動產 release）。
+`--ecosystem npm` 會跳過 PyPI metadata 這一步（同名 PyPI 專案可能是完全不相關的套件，
+例如 `semver` 對上 npm 的 `node-semver`），直接走 GitHub Releases → repo CHANGELOG。
+GitHub Releases 對 JS 生態覆蓋率很高（大多數套件都用 release-please / semantic-release
+自動產 release）。
 
 如果 repo URL 解析不出來（package.json#repository 是空的或非 GitHub），Phase 3
 就只剩 .d.ts diff + git diff 雙軌。
