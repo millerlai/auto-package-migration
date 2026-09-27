@@ -8,6 +8,7 @@ and the `go.mod` parser.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 # Load scripts/go/dep_tree.py explicitly — it can't sit on sys.path because
@@ -273,3 +274,198 @@ class TestParseGomod:
         f.write_text('module "github.com/foo/bar"\ngo 1.21\n')
         out = dtg.parse_gomod(str(f))
         assert out["module"] == "github.com/foo/bar"
+
+    def test_single_line_replace_with_trailing_comment(self, tmp_path: Path):
+        # T2 (#68): a trailing `// comment` on a `replace` line must not
+        # drop the entry.
+        f = tmp_path / "go.mod"
+        f.write_text(
+            "module x\n"
+            "go 1.21\n"
+            "replace golang.org/x/net v0.17.0 => golang.org/x/net v0.23.0 "
+            "// CVE-2023-45288 pin\n"
+        )
+        out = dtg.parse_gomod(str(f))
+        assert len(out["replace"]) == 1
+        r = out["replace"][0]
+        assert r["old"] == "golang.org/x/net"
+        assert r["old_version"] == "v0.17.0"
+        assert r["new"] == "golang.org/x/net"
+        assert r["new_version"] == "v0.23.0"
+
+    def test_block_replace_entry_with_trailing_comment(self, tmp_path: Path):
+        f = tmp_path / "go.mod"
+        f.write_text(
+            "module x\n"
+            "go 1.21\n"
+            "replace (\n"
+            "    golang.org/x/text => golang.org/x/text v0.14.0 // pinned\n"
+            ")\n"
+        )
+        out = dtg.parse_gomod(str(f))
+        assert len(out["replace"]) == 1
+        r = out["replace"][0]
+        assert r["old"] == "golang.org/x/text"
+        assert r["new"] == "golang.org/x/text"
+        assert r["new_version"] == "v0.14.0"
+
+    def test_require_block_header_with_trailing_comment(self, tmp_path: Path):
+        # A `require ( // comment` header must not silently drop every
+        # dependency inside the block.
+        f = tmp_path / "go.mod"
+        f.write_text(
+            "module x\n"
+            "go 1.21\n"
+            "require ( // comment\n"
+            "    github.com/a/foo v1.2.3\n"
+            "    github.com/b/bar v2.0.0 // indirect\n"
+            ")\n"
+        )
+        out = dtg.parse_gomod(str(f))
+        assert out["direct"].get("github.com/a/foo") == "v1.2.3"
+        assert out["indirect"] == {"github.com/b/bar": "v2.0.0"}
+
+    def test_has_replace_true_with_comment(self, tmp_path: Path):
+        # Regression guard for the reported downstream consequence: a
+        # dropped replace must not silently disable has_replace-driven logic.
+        f = tmp_path / "go.mod"
+        f.write_text(
+            "module x\n"
+            "go 1.21\n"
+            "replace golang.org/x/net => golang.org/x/net v0.23.0 // CVE pin\n"
+        )
+        out = dtg.parse_gomod(str(f))
+        assert len(out["replace"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# parse_gomod_json
+# --------------------------------------------------------------------------- #
+
+
+class TestParseGomodJson:
+    def test_returns_none_without_go(self, tmp_path: Path, monkeypatch):
+        # Simulate `go` missing by pointing PATH somewhere empty.
+        monkeypatch.setenv("PATH", str(tmp_path))
+        assert dtg.parse_gomod_json(str(tmp_path)) is None
+
+    def test_callers_fall_back_to_regex_parser(self, tmp_path: Path, monkeypatch):
+        # With no working `go`, parse_gomod_json returns None and the
+        # regex-based parse_gomod result is used instead.
+        monkeypatch.setenv("PATH", str(tmp_path))
+        f = tmp_path / "go.mod"
+        f.write_text("module x\ngo 1.21\nrequire github.com/foo/bar v1.0.0\n")
+        gomod = dtg.parse_gomod_json(str(tmp_path)) or dtg.parse_gomod(str(f))
+        assert gomod["direct"] == {"github.com/foo/bar": "v1.0.0"}
+
+    def test_maps_go_mod_edit_json_shape(self, monkeypatch):
+        # (#68 fix-up) The `go mod edit -json` path (D5) is the authoritative
+        # parser and never exercised by any go_bin-gated test in this repo, so
+        # nothing catches a broken Require/Replace/Exclude field mapping. Stub
+        # `run()` with the toolchain's real output shape (see `go help mod
+        # edit`) and assert the mapping, independent of a real `go` binary.
+        sample = json.dumps(
+            {
+                "Module": {"Path": "example.com/proj"},
+                "Go": "1.21",
+                "Toolchain": "go1.21.5",
+                "Require": [
+                    {"Path": "github.com/a/foo", "Version": "v1.2.3"},
+                    {"Path": "github.com/b/bar", "Version": "v2.0.0", "Indirect": True},
+                ],
+                "Replace": [
+                    {
+                        "Old": {"Path": "golang.org/x/net", "Version": "v0.17.0"},
+                        "New": {"Path": "golang.org/x/net", "Version": "v0.23.0"},
+                    }
+                ],
+                "Exclude": [{"Path": "example.com/bad", "Version": "v1.0.0"}],
+            }
+        )
+
+        def fake_run(cmd, cwd=None, timeout=30, env=None):
+            assert cmd == ["go", "mod", "edit", "-json"]
+            assert env == {"GOTOOLCHAIN": "local"}
+            return 0, sample, ""
+
+        monkeypatch.setattr(dtg, "run", fake_run)
+        out = dtg.parse_gomod_json(".")
+        assert out == {
+            "module": "example.com/proj",
+            "go": "1.21",
+            "toolchain": "go1.21.5",
+            "direct": {"github.com/a/foo": "v1.2.3"},
+            "indirect": {"github.com/b/bar": "v2.0.0"},
+            "replace": [
+                {
+                    "old": "golang.org/x/net",
+                    "old_version": "v0.17.0",
+                    "new": "golang.org/x/net",
+                    "new_version": "v0.23.0",
+                }
+            ],
+            "exclude": [{"path": "example.com/bad", "version": "v1.0.0"}],
+        }
+
+    def test_matches_regex_parser_against_real_go(self, go_bin, tmp_path: Path):
+        # (#68 fix-up) every other case above either has no `go` on PATH or
+        # mocks `run()`; none invokes the real `go mod edit -json`
+        # subprocess, so a broken field mapping would pass unnoticed even in
+        # CI. Run the real toolchain against a comment-bearing fixture and
+        # cross-check it against parse_gomod (the regex fallback), per
+        # detail-design R2's "integration, CI (`go mod edit -json`)" row.
+        f = tmp_path / "go.mod"
+        f.write_text(
+            "module example.com/proj\n"
+            "go 1.21\n"
+            "require golang.org/x/net v0.17.0\n"
+            "replace golang.org/x/net v0.17.0 => golang.org/x/net v0.23.0 "
+            "// CVE-2023-45288 pin\n"
+        )
+        via_json = dtg.parse_gomod_json(str(tmp_path))
+        via_regex = dtg.parse_gomod(str(f))
+        assert via_json is not None
+        assert via_json == via_regex
+
+
+# --------------------------------------------------------------------------- #
+# parse_target_in_parent_mod
+# --------------------------------------------------------------------------- #
+
+
+class TestParseTargetInParentMod:
+    def test_replace_with_trailing_comment(self):
+        mod_text = (
+            "module example.com/parent\n"
+            "go 1.21\n"
+            "require example.com/target v1.0.0\n"
+            "replace example.com/target => example.com/target v1.2.0 "
+            "// CVE pin\n"
+        )
+        require_version, replace_info = dtg.parse_target_in_parent_mod(
+            mod_text, "example.com/target"
+        )
+        assert require_version == "v1.0.0"
+        assert replace_info == {"new_path": "example.com/target", "new_version": "v1.2.0"}
+
+    def test_require_block_header_with_trailing_comment(self):
+        mod_text = (
+            "module example.com/parent\n"
+            "go 1.21\n"
+            "require ( // comment\n"
+            "    example.com/target v1.0.0\n"
+            ")\n"
+        )
+        require_version, _ = dtg.parse_target_in_parent_mod(mod_text, "example.com/target")
+        assert require_version == "v1.0.0"
+
+    def test_replace_block_header_with_trailing_comment(self):
+        mod_text = (
+            "module example.com/parent\n"
+            "go 1.21\n"
+            "replace ( // comment\n"
+            "    example.com/target => example.com/target v1.2.0\n"
+            ")\n"
+        )
+        _, replace_info = dtg.parse_target_in_parent_mod(mod_text, "example.com/target")
+        assert replace_info == {"new_path": "example.com/target", "new_version": "v1.2.0"}

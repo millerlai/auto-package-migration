@@ -121,10 +121,26 @@ if [ -f "go.mod" ]; then
     fi
 
     # Parse replace directives — supports single-line `replace ... => ...` and block form.
-    # NOTE: This is a quick scan for the env summary; dep_tree_go.py does a more
-    # rigorous parse for upgrade-decision purposes.
-    if [ "$HAS_REPLACE" = "true" ] && command -v jq >/dev/null 2>&1; then
-        REPLACE_JSON=$(python3 - <<'PY' 2>/dev/null || echo "[]"
+    # Prefer the toolchain (`go mod edit -json`), which is authoritative and
+    # comment-tolerant; fall back to a regex scan (also comment-tolerant) when
+    # `go` is unavailable or the toolchain call fails.
+    if [ "$HAS_REPLACE" = "true" ]; then
+        if command -v go >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+            GOMOD_JSON=$(GOTOOLCHAIN=local go mod edit -json 2>/dev/null || true)
+            if [ -n "$GOMOD_JSON" ]; then
+                REPLACE_JSON=$(echo "$GOMOD_JSON" | jq -c '
+                    [ (.Replace // [])[] | {
+                        old: .Old.Path,
+                        old_version: (.Old.Version // ""),
+                        new: .New.Path,
+                        new_version: (.New.Version // "")
+                    } ]
+                ' 2>/dev/null || echo "[]")
+            fi
+        fi
+
+        if [ "$REPLACE_JSON" = "[]" ] && command -v jq >/dev/null 2>&1; then
+            REPLACE_JSON=$(python3 - <<'PY' 2>/dev/null || echo "[]"
 import json, re, sys
 out = []
 try:
@@ -132,9 +148,10 @@ try:
 except Exception:
     print("[]"); sys.exit(0)
 
-# Single-line: `replace <old> [<old-ver>] => <new> [<new-ver>]`
+# Single-line: `replace <old> [<old-ver>] => <new> [<new-ver>]`, tolerant of
+# a trailing `// comment` (`//` cannot appear in a module path or version).
 single_re = re.compile(
-    r'^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$',
+    r'^\s*replace\s+(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?(?:\s*//[^\n]*)?\s*$',
     re.M,
 )
 for m in single_re.finditer(text):
@@ -145,8 +162,9 @@ for m in single_re.finditer(text):
         "new_version": m.group(4) or "",
     })
 
-# Block form: `replace ( ... )` (multi-line inside parens)
-block_re = re.compile(r'^replace\s*\(\s*$(.*?)^\)\s*$', re.M | re.S)
+# Block form: `replace ( ... )` (multi-line inside parens); the header may
+# also carry a trailing comment.
+block_re = re.compile(r'^replace\s*\(\s*(?://[^\n]*)?$(.*?)^\)\s*$', re.M | re.S)
 inner_re = re.compile(r'(\S+)\s+(v\S+)?\s*=>\s*(\S+)\s*(v\S+)?\s*$')
 for blk in block_re.finditer(text):
     body = blk.group(1)
@@ -154,6 +172,7 @@ for blk in block_re.finditer(text):
         line = raw.strip()
         if not line or line.startswith("//"):
             continue
+        line = line.split("//", 1)[0].strip()
         mm = inner_re.match(line)
         if mm:
             out.append({
@@ -166,6 +185,7 @@ for blk in block_re.finditer(text):
 print(json.dumps(out))
 PY
 )
+        fi
     fi
 fi
 
