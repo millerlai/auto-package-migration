@@ -180,6 +180,182 @@ def _search_json_tree(
             _search_json_tree(target, dep, parents, constraints, pkg_name)
 
 
+_LOCK_FILE_NAMES = {"poetry": "poetry.lock", "uv": "uv.lock"}
+
+
+def _load_lock_entries(
+    project_path: str, pkg_manager: str
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Parse `poetry.lock` / `uv.lock` into a manager-agnostic entry list.
+
+    Each entry is `{"name": str, "version": str, "dependencies": {name: spec}}`.
+    uv's lockfile carries no version specifiers on its dependency edges, so
+    those entries get `""` specs. Needs no venv — the lockfile alone is
+    enough to build the reverse-dependency map.
+
+    Returns (entries, warnings). `entries` is `[]` when there is no lockfile
+    for this manager, or when it could not be parsed.
+    """
+    lock_name = _LOCK_FILE_NAMES.get(pkg_manager)
+    if lock_name is None:
+        return [], []
+
+    lock_path = Path(project_path) / lock_name
+    if not lock_path.exists():
+        return [], []
+
+    if _tomllib is None:
+        return [], [
+            "no TOML parser (install tomli on Python 3.10) — parents from lockfile unavailable"
+        ]
+
+    data = _load_toml(lock_path)
+    if data is None:
+        return [], [f"could not parse {lock_name}"]
+
+    entries: List[Dict[str, Any]] = []
+    for pkg in data.get("package") or []:
+        source = pkg.get("source") or {}
+        if (
+            pkg_manager == "uv"
+            and isinstance(source, dict)
+            and ("editable" in source or "virtual" in source)
+        ):
+            # uv.lock always includes the workspace root itself as a
+            # `[[package]]` entry (source = editable/virtual). It identifies
+            # the project's direct dependencies, but it is not a real parent
+            # — treating it as one corrupts dependency_type/parent_packages
+            # for every direct dependency (issue-68.md:308).
+            continue
+        name = pkg.get("name", "")
+        version = pkg.get("version", "")
+        deps: Dict[str, str] = {}
+        if pkg_manager == "poetry":
+            for dep_name, dep_spec in (pkg.get("dependencies") or {}).items():
+                if isinstance(dep_spec, dict):
+                    deps[dep_name] = dep_spec.get("version", "") or ""
+                else:
+                    deps[dep_name] = dep_spec or ""
+        else:  # uv
+            for dep in pkg.get("dependencies") or []:
+                dep_name = dep.get("name", "") if isinstance(dep, dict) else ""
+                if dep_name:
+                    deps[dep_name] = ""
+        entries.append({"name": name, "version": version, "dependencies": deps})
+
+    return entries, []
+
+
+def find_parents_in_lock(
+    entries: List[Dict[str, Any]], target: str
+) -> Tuple[List[str], Dict[str, str]]:
+    """Find `target`'s direct parents from `_load_lock_entries`' output.
+
+    Returns (parent_packages, version_constraints), mirroring
+    `find_parents_in_tree`'s shape.
+    """
+    target_norm = _normalize_pypi_name(target)
+    parents: List[str] = []
+    constraints: Dict[str, str] = {}
+
+    for entry in entries:
+        for dep_name, spec in (entry.get("dependencies") or {}).items():
+            if _normalize_pypi_name(dep_name) != target_norm:
+                continue
+            parent_name = entry.get("name", "")
+            if parent_name and parent_name not in parents:
+                parents.append(parent_name)
+                if spec:
+                    constraints[parent_name] = spec
+
+    return parents, constraints
+
+
+def _declares_directly_in_toml(data: Dict[str, Any], target_norm: str) -> bool:
+    """Check the PEP 621 / Poetry / uv tables of an already-parsed pyproject.toml."""
+    project = data.get("project") or {}
+    for dep in project.get("dependencies") or []:
+        if isinstance(dep, str) and _name_in_req_string(dep, target_norm):
+            return True
+    optional_deps = project.get("optional-dependencies") or {}
+    for group in optional_deps.values():
+        for dep in group or []:
+            if isinstance(dep, str) and _name_in_req_string(dep, target_norm):
+                return True
+
+    dep_groups = data.get("dependency-groups") or {}
+    for group in dep_groups.values():
+        for dep in group or []:
+            if isinstance(dep, str) and _name_in_req_string(dep, target_norm):
+                return True
+
+    tool = data.get("tool") or {}
+    poetry = tool.get("poetry") or {}
+    poetry_deps = poetry.get("dependencies") or {}
+    for name in poetry_deps:
+        if name == "python":
+            continue
+        if _normalize_pypi_name(name) == target_norm:
+            return True
+    poetry_groups = poetry.get("group") or {}
+    for group_table in poetry_groups.values():
+        for name in (group_table or {}).get("dependencies") or {}:
+            if _normalize_pypi_name(name) == target_norm:
+                return True
+    for name in poetry.get("dev-dependencies") or {}:
+        if _normalize_pypi_name(name) == target_norm:
+            return True
+
+    uv = tool.get("uv") or {}
+    for dep in uv.get("dev-dependencies") or []:
+        if isinstance(dep, str) and _name_in_req_string(dep, target_norm):
+            return True
+
+    return False
+
+
+_QUOTED_STRING_RE = re.compile(r"""["']([^"']+)["']""")
+
+
+def _scan_quoted_strings(text: str, target_norm: str) -> bool:
+    """Best-effort fallback: check every quoted string for `target_norm`.
+
+    Used for setup.py/setup.cfg, and for pyproject.toml when no TOML parser
+    is available.
+    """
+    for match in _QUOTED_STRING_RE.finditer(text):
+        if _name_in_req_string(match.group(1), target_norm):
+            return True
+    return False
+
+
+def _declares_directly(dep_file: Path, target_norm: str) -> bool:
+    """True when `dep_file` directly declares `target_norm` as a dependency."""
+    try:
+        text = dep_file.read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, IOError, OSError):
+        return False
+
+    name = dep_file.name
+    if name == "pyproject.toml":
+        data = _load_toml(dep_file)
+        if data is not None:
+            return _declares_directly_in_toml(data, target_norm)
+        return _scan_quoted_strings(text, target_norm)
+
+    if name in ("setup.py", "setup.cfg"):
+        return _scan_quoted_strings(text, target_norm)
+
+    # requirements*.txt: per line, drop comments and option lines (-r/-c/-e/--…)
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        if _name_in_req_string(line, target_norm):
+            return True
+    return False
+
+
 def classify_dependency(
     package_name: str, dep_tree: Dict[str, Any], dep_files: List[str], format_type: str = "json"
 ) -> Dict[str, Any]:
@@ -189,16 +365,12 @@ def classify_dependency(
     version_constraints: dict[str, str] = {}
 
     # Check if package is directly declared in dependency files
-    package_pattern = re.compile(rf"^{re.escape(package_name)}\b", re.MULTILINE | re.IGNORECASE)
+    target_norm = _normalize_pypi_name(package_name)
 
     for dep_file in dep_files:
-        try:
-            content = Path(dep_file).read_text()
-            if package_pattern.search(content):
-                is_direct = True
-                break
-        except (FileNotFoundError, IOError):
-            continue
+        if _declares_directly(Path(dep_file), target_norm):
+            is_direct = True
+            break
 
     # Find parent packages from dependency tree
     parent_packages, version_constraints = find_parents_in_tree(package_name, dep_tree, format_type)
@@ -897,6 +1069,38 @@ def compose_strategies(
 
 
 # --------------------------------------------------------------------------- #
+# Dependency file discovery — pure pathlib, no `find` subprocess.
+#
+# Native Windows Python resolves ["find", ...] to C:\Windows\System32\FIND.EXE
+# (CreateProcess searches System32 before PATH), which fails silently. This
+# replaces it with pathlib so behaviour is identical on Linux/macOS/Windows.
+# --------------------------------------------------------------------------- #
+
+_DEP_FILE_PATTERNS = ("requirements*.txt", "pyproject.toml", "setup.py", "setup.cfg")
+
+
+def find_dep_files(root: Path) -> List[Path]:
+    """Find dependency files at `root` and one directory level down.
+
+    Mirrors the old `find <root> -maxdepth 2 (-name ... -o ...) -not -path
+    '*/.venv/*' -not -path '*/venv/*'`. Skips any path with a `.venv` or
+    `venv` path component. Returns a sorted list for deterministic output.
+    """
+    found: set[Path] = set()
+    for pattern in _DEP_FILE_PATTERNS:
+        for depth_glob in (pattern, f"*/{pattern}"):
+            try:
+                for path in root.glob(depth_glob):
+                    if ".venv" in path.parts or "venv" in path.parts:
+                        continue
+                    if path.is_file():
+                        found.add(path)
+            except OSError:
+                continue
+    return sorted(found)
+
+
+# --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
 
@@ -931,39 +1135,30 @@ def main():
     version = get_installed_version(args.package_name, args.pkg_manager, args.project_path)
 
     # Find dependency files
-    dep_files_raw = subprocess.run(
-        [
-            "find",
-            args.project_path,
-            "-maxdepth",
-            "2",
-            "(",
-            "-name",
-            "requirements*.txt",
-            "-o",
-            "-name",
-            "pyproject.toml",
-            "-o",
-            "-name",
-            "setup.py",
-            "-o",
-            "-name",
-            "setup.cfg",
-            ")",
-            "-not",
-            "-path",
-            "*/.venv/*",
-            "-not",
-            "-path",
-            "*/venv/*",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    dep_files = [f for f in dep_files_raw.stdout.strip().splitlines() if f]
+    dep_files = [str(p) for p in find_dep_files(Path(args.project_path))]
 
     # Classify dependency
     classification = classify_dependency(args.package_name, dep_tree, dep_files, format_type)
+
+    # poetry/uv: pipdeptree-shaped trees don't exist for these managers (their
+    # tree comes back as raw text), so parents come from the lockfile instead —
+    # deterministic and needs no venv. pip is untouched.
+    warnings: List[str] = []
+    if args.pkg_manager in ("poetry", "uv"):
+        lock_entries, warnings = _load_lock_entries(args.project_path, args.pkg_manager)
+        lock_parents, lock_constraints = find_parents_in_lock(lock_entries, args.package_name)
+        if lock_parents:
+            classification["parent_packages"] = lock_parents
+            classification["version_constraints"] = lock_constraints
+            classification["is_transitive"] = True
+            classification["dependency_type"] = (
+                "both" if classification["is_direct"] else "transitive"
+            )
+        target_norm = _normalize_pypi_name(args.package_name)
+        for entry in lock_entries:
+            if _normalize_pypi_name(entry.get("name", "")) == target_norm and entry.get("version"):
+                version = entry["version"]
+                break
 
     # Lockfile hint: any of these counts. Cheap detection — caller already has
     # the authoritative answer from detect_env.sh, but we want this script to
@@ -1017,6 +1212,7 @@ def main():
         "upgrade_strategies": strategies,
         "recommended_strategy": strategies[0]["type"] if strategies else "unknown",
         "full_tree": dep_tree,
+        "warnings": warnings,
     }
 
     print(json.dumps(result, indent=2))

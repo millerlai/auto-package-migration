@@ -613,3 +613,342 @@ class TestComposeStrategies:
         )
         confs = [s["confidence"] for s in strats]
         assert confs == sorted(confs, reverse=True)
+
+
+# --------------------------------------------------------------------------- #
+# find_dep_files — pure pathlib replacement for the `find` subprocess (T11)
+# --------------------------------------------------------------------------- #
+
+
+class TestFindDepFiles:
+    def test_includes_nested_dep_file_one_level_down(self, tmp_path: Path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        target = sub / "requirements-dev.txt"
+        target.write_text("requests>=2.0\n", encoding="utf-8")
+        result = dep_tree.find_dep_files(tmp_path)
+        assert target in result
+
+    def test_includes_dep_file_at_root(self, tmp_path: Path):
+        target = tmp_path / "pyproject.toml"
+        target.write_text('[project]\nname = "demo"\n', encoding="utf-8")
+        result = dep_tree.find_dep_files(tmp_path)
+        assert target in result
+
+    def test_excludes_venv_paths(self, tmp_path: Path):
+        venv_dir = tmp_path / ".venv" / "x"
+        venv_dir.mkdir(parents=True)
+        venv_file = venv_dir / "requirements.txt"
+        venv_file.write_text("requests>=2.0\n", encoding="utf-8")
+        result = dep_tree.find_dep_files(tmp_path)
+        assert venv_file not in result
+
+    def test_reads_utf8_file_with_chinese_comments(self, tmp_path: Path):
+        req = tmp_path / "requirements.txt"
+        req.write_text("# 中文註解\nrequests>=2.0\n", encoding="utf-8")
+        result = dep_tree.find_dep_files(tmp_path)
+        assert req in result
+        # Exercise the actual classification path (not just pathlib's own
+        # read_text) so a regression from errors="replace" back to bare
+        # read_text() on dep_tree.py's read of this file would fail here.
+        assert dep_tree._declares_directly(req, dep_tree._normalize_pypi_name("requests")) is True
+
+
+# --------------------------------------------------------------------------- #
+# _declares_directly — structured, normalized direct-dependency detection (T8)
+# --------------------------------------------------------------------------- #
+
+
+class TestDeclaresDirectly:
+    def test_pep621_multiline_array_is_direct(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "demo"\ndependencies = [\n    "requests>=2.0",\n    "flask",\n]\n',
+            encoding="utf-8",
+        )
+        assert dep_tree._declares_directly(pyproject, "requests") is True
+
+    def test_only_requests_toolbelt_present_requests_not_direct(self, tmp_path: Path):
+        req = tmp_path / "requirements.txt"
+        req.write_text("requests-toolbelt==1.0\n", encoding="utf-8")
+        assert dep_tree._declares_directly(req, "requests") is False
+
+    def test_requests_toolbelt_name_normalizes(self, tmp_path: Path):
+        req = tmp_path / "requirements.txt"
+        req.write_text("Requests_Toolbelt==1.0\n", encoding="utf-8")
+        assert dep_tree._declares_directly(req, "requests-toolbelt") is True
+
+    def test_requirements_txt_skips_comments_and_options(self, tmp_path: Path):
+        req = tmp_path / "requirements.txt"
+        req.write_text(
+            "-r base.txt\n# requests>=2.0\n--index-url https://example\n", encoding="utf-8"
+        )
+        assert dep_tree._declares_directly(req, "requests") is False
+
+    def test_poetry_dependencies_table(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[tool.poetry.dependencies]\npython = "^3.10"\nrequests = "^2.0"\n',
+            encoding="utf-8",
+        )
+        assert dep_tree._declares_directly(pyproject, "requests") is True
+
+    def test_poetry_python_key_excluded(self, tmp_path: Path):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.poetry.dependencies]\npython = "^3.10"\n', encoding="utf-8")
+        assert dep_tree._declares_directly(pyproject, "python") is False
+
+    def test_no_toml_parser_falls_back_to_quoted_string_scan(self, tmp_path: Path, monkeypatch):
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\ndependencies = ["requests>=2.0"]\n', encoding="utf-8")
+        monkeypatch.setattr(dep_tree, "_tomllib", None)
+        assert dep_tree._declares_directly(pyproject, "requests") is True
+
+
+# --------------------------------------------------------------------------- #
+# _load_lock_entries / find_parents_in_lock — poetry.lock / uv.lock parents,
+# no venv needed (T7)
+# --------------------------------------------------------------------------- #
+
+
+class TestLoadLockEntries:
+    def test_poetry_lock_entries(self, tmp_path: Path):
+        lock = tmp_path / "poetry.lock"
+        lock.write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n\n'
+            '[package.dependencies]\nurllib3 = ">=1.21.1,<3"\ncertifi = ">=2017.4.17"\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), "poetry")
+        assert warnings == []
+        names = {e["name"] for e in entries}
+        assert names == {"requests", "urllib3"}
+        requests_entry = next(e for e in entries if e["name"] == "requests")
+        assert requests_entry["dependencies"]["urllib3"] == ">=1.21.1,<3"
+
+    def test_uv_lock_entries_have_empty_specs(self, tmp_path: Path):
+        lock = tmp_path / "uv.lock"
+        lock.write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n'
+            'dependencies = [\n    { name = "urllib3" },\n]\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), "uv")
+        assert warnings == []
+        requests_entry = next(e for e in entries if e["name"] == "requests")
+        assert requests_entry["dependencies"] == {"urllib3": ""}
+
+    def test_missing_lockfile_returns_empty(self, tmp_path: Path):
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), "poetry")
+        assert entries == []
+        assert warnings == []
+
+    def test_no_toml_parser_gives_warning(self, tmp_path: Path, monkeypatch):
+        lock = tmp_path / "poetry.lock"
+        lock.write_text('[[package]]\nname = "requests"\nversion = "1.0"\n', encoding="utf-8")
+        monkeypatch.setattr(dep_tree, "_tomllib", None)
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), "poetry")
+        assert entries == []
+        assert warnings == [
+            "no TOML parser (install tomli on Python 3.10) — parents from lockfile unavailable"
+        ]
+
+    def test_uv_lock_skips_workspace_root_entry(self, tmp_path: Path):
+        # uv.lock always carries the project itself as a `[[package]]` entry
+        # with an editable/virtual source (issue-68.md:308: "The root project
+        # entry identifies direct dependencies" — it is not a real parent).
+        lock = tmp_path / "uv.lock"
+        lock.write_text(
+            '[[package]]\nname = "demo-project"\nversion = "1.0.0"\n'
+            'source = { editable = "." }\n'
+            'dependencies = [\n    { name = "requests" },\n]\n\n'
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n'
+            'source = { registry = "https://pypi.org/simple" }\n',
+            encoding="utf-8",
+        )
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), "uv")
+        assert warnings == []
+        names = {e["name"] for e in entries}
+        assert "demo-project" not in names
+        parents, _ = dep_tree.find_parents_in_lock(entries, "requests")
+        assert parents == []
+
+
+class TestFindParentsInLock:
+    def test_urllib3_only_via_requests_poetry_style(self):
+        entries = [
+            {
+                "name": "requests",
+                "version": "2.31.0",
+                "dependencies": {"urllib3": ">=1.21.1,<3"},
+            },
+            {"name": "urllib3", "version": "2.0.7", "dependencies": {}},
+        ]
+        parents, constraints = dep_tree.find_parents_in_lock(entries, "urllib3")
+        assert parents == ["requests"]
+        assert constraints == {"requests": ">=1.21.1,<3"}
+
+    def test_urllib3_only_via_requests_uv_style_empty_spec(self):
+        entries = [
+            {"name": "requests", "version": "2.31.0", "dependencies": {"urllib3": ""}},
+            {"name": "urllib3", "version": "2.0.7", "dependencies": {}},
+        ]
+        parents, constraints = dep_tree.find_parents_in_lock(entries, "urllib3")
+        assert parents == ["requests"]
+        assert constraints == {}
+
+    def test_no_match_returns_empty(self):
+        entries = [{"name": "flask", "version": "1.0", "dependencies": {}}]
+        parents, constraints = dep_tree.find_parents_in_lock(entries, "urllib3")
+        assert parents == []
+        assert constraints == {}
+
+
+class TestLockBasedClassificationEndToEnd:
+    """Reproduces T7's fixtures: urllib3 comes only via requests, no venv."""
+
+    def _classify_from_lock(self, tmp_path: Path, pkg_manager: str):
+        entries, warnings = dep_tree._load_lock_entries(str(tmp_path), pkg_manager)
+        parents, constraints = dep_tree.find_parents_in_lock(entries, "urllib3")
+        is_transitive = len(parents) > 0
+        classification = {
+            "dependency_type": "transitive" if is_transitive else "unknown",
+            "is_direct": False,
+            "is_transitive": is_transitive,
+            "parent_packages": parents,
+            "version_constraints": constraints,
+        }
+        return classification, warnings
+
+    def test_poetry_lock_fixture(self, tmp_path: Path):
+        # requests' lock entry pins urllib3 to a spec that already allows 2.0.8,
+        # so lock_only should outrank the pin_add fallback.
+        (tmp_path / "poetry.lock").write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n\n'
+            '[package.dependencies]\nurllib3 = ">=1.21.1,<3"\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        classification, warnings = self._classify_from_lock(tmp_path, "poetry")
+        assert warnings == []
+        assert classification["parent_packages"] == ["requests"]
+        assert classification["dependency_type"] == "transitive"
+        strategies = dep_tree.compose_strategies(
+            classification, parent_analyses=[], has_lockfile=True, target_version="2.0.8"
+        )
+        assert strategies[0]["type"] != "pin_add"
+
+    def test_uv_lock_fixture(self, tmp_path: Path):
+        # uv.lock carries no version specifiers, so lock_only can't fire from
+        # the lockfile alone — the PyPI probe on the parent (requests) is what
+        # promotes bump_parent above the pin_add fallback.
+        (tmp_path / "uv.lock").write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n'
+            'dependencies = [\n    { name = "urllib3" },\n]\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        classification, warnings = self._classify_from_lock(tmp_path, "uv")
+        assert warnings == []
+        assert classification["parent_packages"] == ["requests"]
+        assert classification["dependency_type"] == "transitive"
+
+        meta = {
+            "info": {
+                "version": "2.32.0",
+                "requires_dist": ["urllib3>=1.21.1,<3"],
+            }
+        }
+        with patch.object(dep_tree, "fetch_pypi_metadata", return_value=meta):
+            parent_analyses = [
+                dep_tree.analyze_parent("requests", "urllib3", "2.0.8", probe_enabled=True)
+            ]
+        strategies = dep_tree.compose_strategies(
+            classification,
+            parent_analyses=parent_analyses,
+            has_lockfile=True,
+            target_version="2.0.8",
+        )
+        assert strategies[0]["type"] != "pin_add"
+
+
+# --------------------------------------------------------------------------- #
+# main() — CLI wiring for the poetry/uv lockfile-based parent lookup (T7)
+# --------------------------------------------------------------------------- #
+
+
+class TestMainPkgManagerLock:
+    def test_poetry_project_gets_parents_from_lock_no_venv(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        (tmp_path / "poetry.lock").write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n\n'
+            '[package.dependencies]\nurllib3 = ">=1.21.1,<3"\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        # No poetry binary needed: get_dep_tree_poetry / get_installed_version
+        # hit FileNotFoundError and degrade gracefully — this is the "no venv"
+        # scenario the fix targets.
+        monkeypatch.setattr(
+            "sys.argv",
+            ["dep_tree.py", str(tmp_path), "urllib3", "--pkg-manager", "poetry", "--no-probe"],
+        )
+        dep_tree.main()
+        out = json.loads(capsys.readouterr().out)
+        assert out["parent_packages"] == ["requests"]
+        assert out["dependency_type"] == "transitive"
+        assert out["current_version"] == "2.0.7"
+        assert out["warnings"] == []
+
+    def test_poetry_project_direct_and_transitive_gives_both(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.poetry.dependencies]\npython = "^3.10"\nurllib3 = "^2.0"\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "poetry.lock").write_text(
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n\n'
+            '[package.dependencies]\nurllib3 = ">=1.21.1,<3"\n\n'
+            '[[package]]\nname = "urllib3"\nversion = "2.0.7"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["dep_tree.py", str(tmp_path), "urllib3", "--pkg-manager", "poetry", "--no-probe"],
+        )
+        dep_tree.main()
+        out = json.loads(capsys.readouterr().out)
+        assert out["dependency_type"] == "both"
+        assert out["parent_packages"] == ["requests"]
+
+    def test_uv_project_direct_dependency_not_reported_as_both(
+        self, tmp_path: Path, monkeypatch, capsys
+    ):
+        # requests is declared directly in pyproject.toml and has no other
+        # real parent in the lockfile — only the workspace root entry
+        # "depends" on it. That must classify as "direct", not "both", and
+        # must not list the project itself in parent_packages.
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "demo-project"\ndependencies = ["requests>=2.0"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "uv.lock").write_text(
+            '[[package]]\nname = "demo-project"\nversion = "0.1.0"\n'
+            'source = { editable = "." }\n'
+            'dependencies = [\n    { name = "requests" },\n]\n\n'
+            '[[package]]\nname = "requests"\nversion = "2.31.0"\n'
+            'source = { registry = "https://pypi.org/simple" }\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "sys.argv",
+            ["dep_tree.py", str(tmp_path), "requests", "--pkg-manager", "uv", "--no-probe"],
+        )
+        dep_tree.main()
+        out = json.loads(capsys.readouterr().out)
+        assert out["dependency_type"] == "direct"
+        assert out["parent_packages"] == []
