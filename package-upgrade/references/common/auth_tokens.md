@@ -20,9 +20,12 @@
 | **GitHub** (PR / Dependabot) | `gh auth status --hostname <host>`（preflight 已驗證） | `! gh auth login --hostname <host>` | `GITHUB_TOKEN` env（**不持久化**） |
 | **私有 registry** (JFrog / 內部 npm / Azure) | preflight 偵測 env var 已設 **或** npmrc/yarnrc 已有非 `${VAR}` 真實憑證（`registry_auth_native`） | `! npm login --registry <url>` (npm/pnpm) / `! yarn npm login` (yarn berry) / 自行編 `~/.npmrc` / `~/.netrc` (Go) | 貼 token → `save_token.sh`（**僅在使用者明確同意「記住下次」時才寫檔**） |
 
-> **預設不持久化**：Tier 3 收到的 token 一律先只 `export` 進當前 session。
-> 只有在使用者**明確選擇「記住下次」**時，才對 registry token 跑 `save_token.sh`
-> 寫入 `.env.<service>`。`ATLASSIAN_API_TOKEN` / `GITHUB_TOKEN` 一律不寫檔。
+> **預設不持久化**：Tier 3 收到的 token，在使用者選擇「記住下次」之前一律不寫檔。
+> 每個 Bash 工具呼叫都是全新的 shell，`export` 不會留到下一次呼叫，所以需要它的
+> 每個命令都在同一行用 `VAR=value` 前綴帶過去（registry 命令則接在
+> `scripts/common/with_tokens.sh` 前面）。只有在使用者**明確選擇「記住下次」**時，
+> 才對 registry token 跑 `save_token.sh` 寫入 `.env.<service>`。
+> `ATLASSIAN_API_TOKEN` / `GITHUB_TOKEN` 一律不寫檔，一律用前綴。
 
 ---
 
@@ -76,7 +79,8 @@
   that will be used as part of CURL.
 
 提供 token 後，我會:
-  1. export JFROG_TOKEN 到目前 session (供 Phase 5 yarn 命令使用)
+  1. 在需要它的每個命令前面帶 JFROG_TOKEN=<value> 前綴 (供 Phase 5 yarn 命令使用；
+     export 不會跨 Bash 呼叫留存)
   2. 預設**不寫檔**。若你要下次免問，我再問一次是否寫入 <project>/.env.jfrog
 ```
 
@@ -86,7 +90,9 @@
 
 ### 預設：只在 session 內生效，不寫檔
 
-1. `export <ENV_VAR>=<value>` 進當前 session（讓 Phase 5/6 命令繼承）。
+1. **不要** `export`——一個 Bash 呼叫的 `export` 在下一次呼叫就消失，Phase 5/6
+   看不到。在被記住之前，需要它的每個命令都在同一行帶 `VAR=value` 前綴（registry
+   命令接在 `scripts/common/with_tokens.sh` 前面；已設定的變數贏過同名的舊檔案，D2）。
 2. **不要**自動寫 `.env.<service>`。
 3. 接著額外問一句（**只對 registry token**；`ATLASSIAN_API_TOKEN` / `GITHUB_TOKEN` 跳過此問）：
 
@@ -138,7 +144,7 @@ bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>
 是否覆蓋成你剛才提供的新 token?
 
 [Y] 是, 覆蓋舊 token
-[N] 否, 保留現有 .env.jfrog 內容 (我仍會 export 新 token 到當前 session)
+[N] 否, 保留現有 .env.jfrog 內容 (新 token 仍用 VAR=value 前綴帶給需要它的命令)
 ```
 
 選 `[Y]` → 重跑加 `--force`:
@@ -148,7 +154,7 @@ bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>
 # status: "replaced"
 ```
 
-選 `[N]` → 不再寫檔，僅 `export JFROG_TOKEN=<value>` 進當前 session。
+選 `[N]` → 不再寫檔，繼續用 `JFROG_TOKEN=<value>` 前綴（D2：前綴的值贏過檔案裡的舊值）。
 
 ---
 
@@ -159,7 +165,9 @@ bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>
 1. 使用者用 prompt 直接貼上 — token 會出現在這個對話的 transcript 中
 2. **永遠不要 echo 回去** — 收到後接著問下一個問題即可
 3. **永遠不要把 token 放進報告 / commit message / Jira comment** — 即使是片段 / mask 過的也不要
-4. session 中用 `export <ENV_VAR>=<value>` 接過去；後續 Phase 5/6 的命令會繼承
+4. 不要 `export`——每個 Bash 呼叫都是新的 shell；還沒存檔的 token 靠同一行的
+   `VAR=value` 前綴（registry 命令接在 `scripts/common/with_tokens.sh` 前面）帶給
+   需要它的命令
 5. 寫入 `.env.<service>` 必須走 `save_token.sh`（保證 chmod 600 + gitignore），且**只在使用者明確同意持久化時**
 
 ---
@@ -179,15 +187,30 @@ bash scripts/common/save_token.sh <project_path> .env.jfrog JFROG_TOKEN "<token>
 
 ### registry native auth 偵測（`registry_auth_native`）
 
-對 JS 專案，`preflight.sh` 在 env var **未設**時，會**離線**檢查該 registry host
-是否已有非 `${VAR}` placeholder 的真實憑證：
+對 JS 專案，`preflight.sh` 在 env var **未設**時，會用**完整 registry URL**
+（host + path，而非只有 host——npm 的認證可以只綁在 host 上的一個 path，C8）
+檢查該 registry 是否已有非 `${VAR}` placeholder 的真實憑證：
 
-- `<project>/.npmrc` 或 `~/.npmrc` 內 `//<host>[/path]:_authToken|_auth|_password=<literal>`
-- `<project>/.yarnrc.yml` / `.yarnrc.default.yml` 內非 placeholder 的 `npmAuthToken`
+- **npm / pnpm / yarn-classic**：依 npm 自己的 resolution 順序，從
+  `//host/path/.../` 往上一路走到 `//host/`；每一層先查
+  `<project>/.npmrc` 再查 `~/.npmrc`。**第一個有任何 auth key
+  （`_authToken` / `_auth` / `_password`）的層級就此決定答案**——是
+  literal 就算 native，是 `${VAR}` placeholder 就不算，且不會再看更不
+  specific 的層級（即使那裡有真的憑證）。
+- **yarn berry**：先跑 `$PKG_MANAGER_BIN config get npmRegistries --json`
+  （維持預設的 redacted 模式，絕不加 `--no-redacted`——I2 規定 token 值
+  不能出現在 helper 自己的輸出裡；redacted 輸出只要非空就足以證明有設
+  secret）比對 `npmAuthToken`。指令失敗（例如 `.yarnrc.yml` 裡的
+  `${VAR}` 未設會直接 throw，C7）或找不到 binary 時，退回讀
+  `<project>/.yarnrc.yml` 與 `$HOME/.yarnrc.yml`（`yarn npm login` 寫的
+  是 home 那份，一定要看)的文字內容，且**必須比對到同一個 host** 才算數。
 
 命中 → 不報 `env_<VAR>_missing` blocker，改報 `registry_auth_native` ok
 （代表 Tier 1 通過，PM 可自行認證，**完全不需要 token**）。
-未命中 → 維持 blocker，但 remediation 會把 Tier 2 自助指令排在貼 token 之前。
+未命中 → 維持 blocker，remediation 把 Tier 2 自助指令排在貼 token 之前，
+且 `npm login --registry <url>` 一律給**完整 registry URL**——用比較不
+specific 的 URL（例如只有 host）登入，寫入的憑證會被更 specific 的既有
+key 蓋過，等於白做。
 
 > Python 私有 index 的認證儲存位置分散（pip.conf inline creds / `~/.netrc` / keyring /
 > `~/.config/pypoetry/auth.toml`），無法可靠地離線 host-match，因此 Python preflight

@@ -42,7 +42,8 @@ fi
 PROJECT_ABS=$(cd "$PROJECT_PATH" && pwd -P)
 # shellcheck source=../common/load_token_files.sh
 . "$SCRIPT_DIR/../common/load_token_files.sh"
-load_token_files "$PROJECT_ABS" .env.jfrog .env.npm .env.github
+# shellcheck disable=SC2046,SC2086 # fixed, space-separated list of basenames
+load_token_files "$PROJECT_ABS" $(token_files_for js)
 
 # Run language detector
 ENV_JSON=$(bash "$DETECT" "$PROJECT_PATH" 2>/dev/null || echo '{}')
@@ -93,39 +94,171 @@ token_portal_url() {
     esac
 }
 
-# Find the registry/host that references a given env var
-host_for_env_var() {
+# Find the full registry URL that references a given env var (host AND path —
+# npm scopes auth to a specific path on a host, not just the host; C8).
+registry_url_for_env_var() {
     local var="$1"
     if have_jq; then
         echo "$ENV_JSON" | jq -r --arg v "$var" \
-            '(.custom_registries // []) | map(select(.auth_env_var == $v)) | .[0].registry // ""' \
-            | sed -E 's,^https?://([^/]+).*,\1,'
+            '(.custom_registries // []) | map(select(.auth_env_var == $v)) | .[0].registry // ""'
     fi
 }
 
-# Tier-1 capability detection: does this registry host ALREADY have a real
+# npm's own resolution order (C8): given a registry URL, walk its path one
+# segment at a time from most specific down to the bare host, checking
+# project .npmrc before ~/.npmrc at each level. The FIRST level where either
+# file has an auth key decides the answer — a literal value is native, a
+# ${VAR} placeholder is not, and either way nothing less specific is
+# consulted. Echoes the source file and returns 0 on a literal; returns 2
+# (decided, not native) on a placeholder; returns 1 when no level matched
+# anywhere, so the caller can still try yarn's own config.
+_npm_native_auth() {
+    local host="$1" path="$2" level f line value esc_level levels=() segs=() n i j lvl
+
+    path="${path%/}"
+    if [ -n "$path" ]; then
+        IFS='/' read -ra segs <<< "$path"
+    fi
+    n=${#segs[@]}
+    for ((i = n; i >= 1; i--)); do
+        lvl=""
+        for ((j = 0; j < i; j++)); do
+            lvl="${lvl}${segs[j]}/"
+        done
+        levels+=("//${host}/${lvl}")
+    done
+    levels+=("//${host}/")
+
+    for level in "${levels[@]}"; do
+        esc_level="${level//./\\.}"
+        for f in "$PROJECT_ABS/.npmrc" "$HOME/.npmrc"; do
+            [ -f "$f" ] || continue
+            line=$(grep -E "^${esc_level}:_(authToken|auth|password)=" "$f" 2>/dev/null | head -1)
+            [ -z "$line" ] && continue
+            value="${line#*=}"
+            if [[ "$value" == \$* ]]; then
+                return 2
+            fi
+            echo "$f"; return 0
+        done
+    done
+    return 1
+}
+
+# yarn berry's merged config: `config get npmRegistries --json` stays in its
+# redacted default (I2 — never --no-redacted) so a hit only proves a secret is
+# set, never reveals it. `yarn npm login` writes to the HOME copy, so the
+# fallback below must check $HOME/.yarnrc.yml too, and require a host match —
+# `config get` throwing on an unset ${VAR} (C7) or the binary being
+# unavailable both fall through to it the same way.
+#
+# SECURITY: never run a corepack-managed `.yarn/releases/*.cjs` shim here —
+# that file is project-supplied content (the thing this skill is upgrading),
+# not locally-trusted tooling. detect_env.sh already avoids executing it (it
+# parses the version from the filename instead); running it during preflight,
+# before the user has approved anything, would let a trojanized shim execute
+# merely by asking "is a token already configured". Only a real system
+# `yarn`/`pnpm` binary (USES_COREPACK=false) is invoked; the corepack case
+# falls straight to the textual fallback below.
+_yarn_native_auth() {
+    local registry_url="$1" host="$2" json f default_server default_host token
+    if [ -n "${PKG_MANAGER_BIN:-}" ] && [ "${USES_COREPACK:-false}" != "true" ]; then
+        json=$(cd "$PROJECT_ABS" && $PKG_MANAGER_BIN config get npmRegistries --json 2>/dev/null) || json=""
+        if [ -n "$json" ] && have_jq; then
+            if echo "$json" | jq -e --arg u "$registry_url" --arg h "$host" \
+                'to_entries[] | select((.key == $u) or ((.key | capture("^https?://(?<h>[^/]+)")? .h // "") == $h)) | select(.value.npmAuthToken // "" | length > 0)' \
+                >/dev/null 2>&1; then
+                echo "(yarn config get npmRegistries)"; return 0
+            fi
+        fi
+        # Top-level npmAuthToken applies to yarn's default registry only —
+        # an exact host match, not a substring (a different registry's host
+        # must never satisfy this one just because one contains the other).
+        default_server=$(cd "$PROJECT_ABS" && $PKG_MANAGER_BIN config get npmRegistryServer 2>/dev/null) || default_server=""
+        default_host=$(printf '%s' "$default_server" | sed -E 's,^https?://([^/]+).*,\1,')
+        if [ -n "$default_server" ] && [ "$default_host" = "$host" ]; then
+            token=$(cd "$PROJECT_ABS" && $PKG_MANAGER_BIN config get npmAuthToken --json 2>/dev/null) || token=""
+            case "$token" in
+                ""|null|'""') ;;
+                *) echo "(yarn config get npmAuthToken)"; return 0 ;;
+            esac
+        fi
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        for f in "$PROJECT_ABS/.yarnrc.yml" "$HOME/.yarnrc.yml"; do
+            [ -f "$f" ] || continue
+            if python3 - "$f" "$host" <<'PY' 2>/dev/null
+import re, sys
+path, host = sys.argv[1], sys.argv[2]
+try:
+    text = open(path, encoding="utf-8").read()
+except Exception:
+    sys.exit(1)
+
+def key_host(k):
+    # Exact host match: a URL's host component, or the bare string itself
+    # when it carries no scheme — never a substring ("nottest.com" must not
+    # satisfy host "test.com").
+    m = re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)', k)
+    return (m.group(1) if m else k.rstrip("/").split("/")[0]).strip('"\'')
+
+m = re.search(r'^npmRegistries:\s*\n((?:[ \t]+.*\n?)+)', text, re.M)
+if m:
+    entry_pat = re.compile(r'^[ \t]+(?:"([^"]+)"|\'([^\']+)\'|([^"\':\n]+)):\s*\n((?:[ \t]{4,}.*\n?)+)', re.M)
+    for em in entry_pat.finditer(m.group(1)):
+        key = em.group(1) or em.group(2) or em.group(3)
+        if key_host(key) != host:
+            continue
+        for line in em.group(4).splitlines():
+            line = line.strip()
+            if line.startswith("npmAuthToken:"):
+                val = line.split(":", 1)[1].strip().strip('"').strip("'")
+                if val and not val.startswith("$"):
+                    sys.exit(0)
+# Top-level npmAuthToken applies to the default registry (npmRegistryServer).
+server_m = re.search(r'^npmRegistryServer:\s*(.+)$', text, re.M)
+token_m = re.search(r'^npmAuthToken:\s*(.+)$', text, re.M)
+server_val = server_m.group(1).strip().strip('"').strip("'") if server_m else ""
+if server_m and token_m and key_host(server_val) == host:
+    val = token_m.group(1).strip().strip('"').strip("'")
+    if val and not val.startswith("$"):
+        sys.exit(0)
+sys.exit(1)
+PY
+            then
+                echo "$f"; return 0
+            fi
+        done
+    fi
+    return 1
+}
+
+# Tier-1 capability detection: does this registry ALREADY have a real
 # (non-${VAR}-placeholder) credential configured natively? If so, the package
 # manager can authenticate without us collecting a token at all. Offline only —
-# we read config files, never hit the network. Echoes the source file on a hit.
-#   * npm / pnpm / yarn-classic: //host[/path]:_authToken|_auth|_password=<value>
-#     in project .npmrc or ~/.npmrc (a leading `$` marks a ${VAR} placeholder).
-#   * yarn-berry: npmAuthToken under .yarnrc.yml (literal, not ${VAR}).
+# we read config files (or ask the package manager for its own merged view of
+# them), never hit the network. Echoes the source on a hit.
 registry_native_auth_source() {
-    local host="$1" f esc
+    local registry_url="$1" host path hostpath rc src
+    [ -z "$registry_url" ] && return 1
+    hostpath="${registry_url#http://}"
+    hostpath="${hostpath#https://}"
+    hostpath="${hostpath%%\?*}"
+    hostpath="${hostpath%%#*}"
+    [ "${hostpath: -1}" = "/" ] || hostpath="${hostpath}/"
+    host="${hostpath%%/*}"
+    path="${hostpath#*/}"
     { [ -z "$host" ] || [ "$host" = "unknown" ]; } && return 1
-    esc="${host//./\\.}"
-    for f in "$PROJECT_ABS/.npmrc" "$HOME/.npmrc"; do
-        [ -f "$f" ] || continue
-        if grep -Eq "^//${esc}[^=]*:_(authToken|auth|password)=[^\$[:space:]]" "$f" 2>/dev/null; then
-            echo "$f"; return 0
-        fi
-    done
-    for f in "$PROJECT_ABS/.yarnrc.yml" "$PROJECT_ABS/.yarnrc.default.yml"; do
-        [ -f "$f" ] || continue
-        if grep -Eq "npmAuthToken: *[^\$\"' [:space:]]" "$f" 2>/dev/null; then
-            echo "$f"; return 0
-        fi
-    done
+
+    src=$(_npm_native_auth "$host" "$path"); rc=$?
+    if [ "$rc" -eq 0 ]; then echo "$src"; return 0; fi
+    # rc == 2 means npm's own resolution decided "not native" (a ${VAR}
+    # placeholder). That is not the final answer for this registry — yarn
+    # berry (the package manager actually in use) may still have a working
+    # credential of its own, so it always gets a chance before giving up.
+
+    src=$(_yarn_native_auth "$registry_url" "$host"); rc=$?
+    if [ "$rc" -eq 0 ]; then echo "$src"; return 0; fi
     return 1
 }
 
@@ -155,8 +288,9 @@ if [ -n "$ENV_PLACEHOLDERS" ]; then
         if [ -n "${!var:-}" ]; then
             add_ok "env_${var}" "Env var \$$var is set"
         else
-            host=$(host_for_env_var "$var")
-            native_src=$(registry_native_auth_source "${host:-}" || true)
+            registry_url=$(registry_url_for_env_var "$var")
+            host=$(printf '%s' "$registry_url" | sed -E 's,^https?://([^/]+).*,\1,')
+            native_src=$(registry_native_auth_source "${registry_url:-}" || true)
             if [ -n "$native_src" ]; then
                 # Tier-1: PM can already authenticate natively — no token needed.
                 add_ok "registry_auth_native" \
@@ -170,8 +304,11 @@ if [ -n "$ENV_PLACEHOLDERS" ]; then
                 fi
                 remediation="Required by config files referencing \${$var}"
                 [ -n "$scope_summary" ] && remediation="$remediation (scopes: $scope_summary)"
-                # Tier-2 self-auth comes before Tier-3 (pasting a raw token):
-                login_url="https://${host:-<registry-host>}/"
+                # Tier-2 self-auth comes before Tier-3 (pasting a raw token). Log
+                # in to the EXACT registry URL — a less specific one (e.g. the
+                # bare host) would land the credential at a key npm's own
+                # resolution order shadows with a more specific, still-missing one.
+                login_url="${registry_url:-<registry-url>}"
                 remediation="$remediation. Authenticate yourself (preferred): 'npm login --registry $login_url' (npm/pnpm) or 'yarn npm login' (yarn berry), then re-run preflight. Last resort — paste a token: get it at $portal, then export $var=<value>"
                 add_blocker "env_${var}_missing" \
                     "Missing env var: \$$var" \

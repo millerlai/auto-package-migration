@@ -189,7 +189,10 @@ bash scripts/python/preflight.sh <project_path>
 ```
 
 腳本會自動 source `<project>/.env.pip` / `.env.poetry` / `.env.uv` / `.env.pypi` /
-`.env.jfrog`（若存在），所以前一次 session 持久化的 token 不需要重新提供。檢查：
+`.env.jfrog`（若存在），所以前一次 session 持久化的 token 不需要在對話中重新貼一次——
+但這只讓 preflight **自己這一次執行**看到它；後面 Phase 5/6 的每個 Bash 呼叫都是
+全新的 shell，必須透過 `scripts/common/with_tokens.sh`（見 Step 0.3.1）才能拿到同一批
+token，`export` 不會跨 Bash 呼叫留存。檢查：
 1. `python3` 在 PATH 且版本可解析
 2. 偵測到的 pkg_manager binary（pip / poetry / uv）在 PATH
 3. `requirements.in` 存在時 `pip-compile` 可用
@@ -206,7 +209,9 @@ bash scripts/javascript/preflight.sh <project_path>
 ```
 
 腳本會自動 **source `<project>/.env.jfrog` / `.env.npm` / `.env.github`**（若存在），
-所以前一次 session 持久化的 token 不需要重新提供。接著檢查：
+所以前一次 session 持久化的 token 不需要在對話中重新貼一次——但這只讓 preflight
+**自己這一次執行**看到它；後面 Phase 5/6 的每個 Bash 呼叫都是全新的 shell，必須透過
+`scripts/common/with_tokens.sh`（見 Step 0.3.1）才能拿到同一批 token。接著檢查：
 1. `pkg_manager_bin` 是否可呼叫（yarn 3 是 `.yarn/releases/yarn-*.cjs` ⇒ corepack）
 2. `env_var_placeholders` 中每個變數是否已設定（含 source `.env.*` 後）
 3. `gh` CLI 對 `git_remote_host` 是否已認證（內部 GHE 也要檢查）
@@ -266,15 +271,23 @@ bash scripts/go/preflight.sh <project_path>
 
 **收到 token 後（預設不持久化）**：
 
-1. 先 `export <ENV_VAR>=<value>` 進當前 session（讓 Phase 5 命令可用）
+1. **不要** `export`——一個 Bash 呼叫裡的 `export` 在下一個呼叫就消失了，Phase 5
+   的命令看不到。**除非**使用者接下來選 [Y] 記住（見下方），否則這個 token 不寫檔
+   （I3）；在被記住之前，每個需要它的命令都在同一個 Bash 呼叫裡帶
+   `VAR=value` 前綴，接在 `with_tokens.sh` 前面，例如：
+   ```bash
+   JFROG_TOKEN=<value> bash scripts/common/with_tokens.sh <project> js -- <pkg_manager_bin> install
+   ```
+   已設定的變數贏過檔案（D2），所以就算專案剛好也有一份舊的 `.env.jfrog`，前綴給的
+   新值仍然生效。
 2. **預設不寫檔**。額外問一次是否要記住下次：
    ```
    要不要記住這個 token，下次 session 免再提供?
    [Y] 記住 — 寫入 <project>/.env.<service> (chmod 600 + gitignore，下次 preflight 自動讀取)
-   [N] 不記住 (預設) — token 只在這個 session 有效
+   [N] 不記住 (預設) — token 只在這個 session 有效，之後每個命令都要帶 VAR=value 前綴
    ```
-   - 選 [N]（預設）→ 結束，不寫檔。
-   - 選 [Y] → 走下方 opt-in 持久化流程。
+   - 選 [N]（預設）→ 結束，不寫檔，繼續用前綴。
+   - 選 [Y] → 走下方 opt-in 持久化流程；完成後改用 `with_tokens.sh` 就好，不必再帶前綴。
 
 **opt-in 持久化流程（僅在使用者選 [Y]）**——必跑 `scripts/common/save_token.sh`：
 
@@ -287,10 +300,10 @@ bash scripts/go/preflight.sh <project_path>
    ⚠️ <project>/.env.jfrog 已經有 JFROG_TOKEN 值。
    是否覆蓋成你剛才提供的新 token?
    [Y] 是, 覆蓋舊 token
-   [N] 否, 保留現有 .env.jfrog 內容 (新 token 仍 export 進當前 session)
+   [N] 否, 保留現有 .env.jfrog 內容 (新 token 仍用 VAR=value 前綴接在 with_tokens.sh 前面)
    ```
    - 選 [Y] → 重跑加 `--force` flag → `{"status":"replaced"}`
-   - 選 [N] → 不寫檔，僅 session 內生效
+   - 選 [N] → 不寫檔，繼續用前綴（D2：前綴的值贏過檔案裡的舊值）
 
 `save_token.sh` 同時負責 `chmod 600` 與把 `.env.<service>` 加進 `<project>/.gitignore` —
 不需要 LLM 手動處理。**永遠不要直接用 Write/Edit 工具寫 token 檔**，那會失去
@@ -575,8 +588,12 @@ MCP 工具存在但回傳 401 / 403 / `unauthorized` / `not accessible` → 視�
 選 [1] → 重試 Tier 1 的 MCP 呼叫。
 選 [3] (Tier 3):
 1. 詢問 email 和 API token (token 連結: `https://id.atlassian.com/manage-profile/security/api-tokens`)
-2. 設定環境變數 `ATLASSIAN_EMAIL` 和 `ATLASSIAN_API_TOKEN`（**不持久化**）
-3. 呼叫 `python scripts/common/jira_fetch.py <site_host> <issue_key>` 取得 JSON
+2. **不持久化**——`export` 在下一個 Bash 呼叫就消失，所以在同一行用 `VAR=value`
+   前綴接 `ATLASSIAN_EMAIL` 和 `ATLASSIAN_API_TOKEN`（同 Step 7.5.3 的 REST token 模式）:
+   ```bash
+   ATLASSIAN_EMAIL=<email> ATLASSIAN_API_TOKEN=<token> \
+     python scripts/common/jira_fetch.py <site_host> <issue_key>
+   ```
 
 #### Step 1.C.3: 分析 ticket 內容 (LLM 任務)
 
@@ -655,7 +672,13 @@ python scripts/common/dependabot_fetch.py <host> <owner> <repo> \
 ```
 
 優先 `gh api`（Phase 0.3 preflight 已驗證 `gh auth status`），fallback 為
-`GITHUB_TOKEN` + `requests`（需 `security_events` scope）。輸出 JSON 含
+`GITHUB_TOKEN` + `requests`（需 `security_events` scope）。這個 token 若這次 session
+沒有存檔，`export` 一樣不會跨 Bash 呼叫留存——用同一行的 `VAR=value` 前綴：
+```bash
+GITHUB_TOKEN=<token> python scripts/common/dependabot_fetch.py <host> <owner> <repo> ...
+```
+已存檔（`.env.github`）時，`load_token_files` 會在下次 preflight 自動讀回,不需要前綴。
+輸出 JSON 含
 `source` / `alert_count` / `unsupported_ecosystems` / `groups[]`，分組鍵為
 `(language, manifest_path)`，同套件多筆警示收斂成一個 `target_version`
 （取最高 `first_patched`）。schema 細節見 reference 文件 §3。
@@ -1305,7 +1328,8 @@ Phase 3.3 合併三軌（changelog / git diff / API surface）時，
 **JS path**:
 
 ```bash
-node scripts/javascript/api_surface_diff.js <package_name> <old_version> <new_version>
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    node scripts/javascript/api_surface_diff.js <package_name> <old_version> <new_version>
 ```
 
 輸出 JSON 含 `removed` / `added` / `changed` / `deprecated_new`，以及
@@ -1327,7 +1351,8 @@ node scripts/javascript/api_surface_diff.js <package_name> <old_version> <new_ve
 **Go path**:
 
 ```bash
-bash scripts/go/api_surface_diff.sh <module_path> <old_version> <new_version>
+bash scripts/common/with_tokens.sh <project_path> go -- \
+    bash scripts/go/api_surface_diff.sh <module_path> <old_version> <new_version>
 ```
 
 輸出 JSON 含 `removed` / `added` / `changed` / `deprecated_new`，加上
@@ -1341,7 +1366,8 @@ bash scripts/go/api_surface_diff.sh <module_path> <old_version> <new_version>
 **Python path**:
 
 ```bash
-bash scripts/python/api_surface_diff.sh <package_name> <old_version> <new_version>
+bash scripts/common/with_tokens.sh <project_path> python -- \
+    bash scripts/python/api_surface_diff.sh <package_name> <old_version> <new_version>
 ```
 
 輸出 schema 與 JS / Go 對齊（`removed` / `added` / `changed` / `deprecated_new`
@@ -1803,7 +1829,7 @@ update、yarn set resolution 後手動補 lockfile）都適用。呈現以下三
 **For poetry**:
 ```bash
 # 只更新 lock, pyproject.toml 不變
-poetry update <package>
+bash scripts/common/with_tokens.sh <project_path> python -- poetry update <package>
 # 或更精準: 只重新解析這一個 pkg
 # poetry update --lock <package>   # 視 poetry 版本而定
 ```
@@ -1811,18 +1837,18 @@ poetry update <package>
 **For uv (專案模式)**:
 ```bash
 # 只升級 lock 中的特定 pkg, pyproject.toml 不動
-uv lock --upgrade-package <package>
+bash scripts/common/with_tokens.sh <project_path> python -- uv lock --upgrade-package <package>
 # 同步到環境 (不會修改 pyproject.toml)
-uv sync
+bash scripts/common/with_tokens.sh <project_path> python -- uv sync
 ```
 
 **For pip (有 lock 檔案)**:
 
-依 lock 檔案類型:
-- pip-tools: `pip-compile --upgrade-package <package> requirements.in`
+依 lock 檔案類型（都走 `with_tokens.sh`）:
+- pip-tools: `bash scripts/common/with_tokens.sh <project_path> python -- pip-compile --upgrade-package <package> requirements.in`
   (注意: 不要編輯 requirements.in, 只升級指定 transitive pkg)
 - 自定義 lock (如 requirements.lock): 需要詢問使用者如何重新產生 lock,
-  常見方式 `pip install --upgrade <package>==<target_version> && pip freeze > <lock_file>`
+  常見方式 `bash scripts/common/with_tokens.sh <project_path> python -- bash -c "pip install --upgrade <package>==<target_version> && pip freeze > <lock_file>"`
 
 **驗證 lock-only 結果**:
 - ✅ 確認依賴宣告檔 (`pyproject.toml` / `requirements.txt` / `requirements.in`)
@@ -1837,7 +1863,11 @@ uv sync
 
 **重要**: 必須同時更新依賴宣告檔和鎖定檔案,不能只更新鎖定檔案!
 
-根據 pkg_manager 執行對應的更新命令:
+根據 pkg_manager 執行對應的更新命令。**每個會連到套件 registry 的命令都走
+`scripts/common/with_tokens.sh <project_path> <python|js|go> -- <實際命令>`**——
+Phase 0.3.1 存的 token 只在 preflight 那一次 Bash 呼叫裡有效，這裡是全新的 shell，
+必須靠這層 wrapper 重新載入；本次 session 還沒存檔的 token 則在同一行再加
+`VAR=value` 前綴（例如 `JFROG_TOKEN=<value> bash scripts/common/with_tokens.sh …`）。
 
 #### For pip:
 
@@ -1850,13 +1880,15 @@ uv sync
 # 例: requests==2.28.0 → requests==2.32.0
 
 # 2. 重新編譯產生 requirements.txt (lock 檔案)
-pip-compile requirements.in --output-file requirements.txt
+bash scripts/common/with_tokens.sh <project_path> python -- \
+    pip-compile requirements.in --output-file requirements.txt
 
 # 或只升級特定套件
-pip-compile --upgrade-package requests requirements.in
+bash scripts/common/with_tokens.sh <project_path> python -- \
+    pip-compile --upgrade-package requests requirements.in
 
 # 3. 安裝
-pip-sync requirements.txt
+bash scripts/common/with_tokens.sh <project_path> python -- pip-sync requirements.txt
 ```
 
 **如果沒有 pip-compile 命令**:
@@ -1875,7 +1907,10 @@ pip install pip-tools
 2. 重新產生 {pip_lock_file}
 
 產生 lock 檔案的方式:
-a) 使用 pip freeze: pip install -r requirements.txt && pip freeze > {pip_lock_file}
+a) 使用 pip freeze (`&&`/重導向要包進 `bash -c`，`with_tokens.sh` 用 `exec` 執行,
+   不會自己起一個能解析 shell 語法的 shell):
+   bash scripts/common/with_tokens.sh <project_path> python -- \
+       bash -c "pip install -r requirements.txt && pip freeze > {pip_lock_file}"
 b) 使用專案自定義腳本 (如 make lock)
 c) 手動管理
 
@@ -1894,20 +1929,21 @@ c) 手動管理
 # 例: requests==2.28.0 → requests==2.32.0
 
 # 2. 安裝新版本
-pip install --upgrade <package>==<version>
+bash scripts/common/with_tokens.sh <project_path> python -- \
+    pip install --upgrade <package>==<version>
 
 # 或從檔案安裝
-pip install -r requirements.txt
+bash scripts/common/with_tokens.sh <project_path> python -- pip install -r requirements.txt
 ```
 
 #### For poetry:
 
 ```bash
 # 使用 poetry add 自動更新 pyproject.toml 和 poetry.lock
-poetry add <package>@<version>
+bash scripts/common/with_tokens.sh <project_path> python -- poetry add <package>@<version>
 
 # 範例
-poetry add requests@2.32.0
+bash scripts/common/with_tokens.sh <project_path> python -- poetry add requests@2.32.0
 ```
 
 **`poetry add` 會自動**:
@@ -1921,12 +1957,12 @@ poetry add requests@2.32.0
 
 ```bash
 # 使用 uv add 自動更新 pyproject.toml 和 uv.lock
-uv add "<package>>=<version>"
+bash scripts/common/with_tokens.sh <project_path> python -- uv add "<package>>=<version>"
 
 # 範例
-uv add "requests>=2.32.0"
+bash scripts/common/with_tokens.sh <project_path> python -- uv add "requests>=2.32.0"
 # 或精確版本
-uv add "requests==2.32.0"
+bash scripts/common/with_tokens.sh <project_path> python -- uv add "requests==2.32.0"
 ```
 
 **`uv add` 會自動**:
@@ -1943,23 +1979,26 @@ uv add "requests==2.32.0"
 # 例: requests==2.28.0 → requests==2.32.0
 
 # 2. 安裝新版本
-uv pip install -r requirements.txt
+bash scripts/common/with_tokens.sh <project_path> python -- uv pip install -r requirements.txt
 ```
 
 #### For npm (JavaScript path):
 
 ```bash
 # 直接依賴 (dependencies)
-npm install <package>@<version> --save --ignore-scripts
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    npm install <package>@<version> --save --ignore-scripts
 
 # Dev 依賴 (devDependencies)
-npm install <package>@<version> --save-dev --ignore-scripts
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    npm install <package>@<version> --save-dev --ignore-scripts
 
 # Peer 依賴 (npm >= 7)
-npm install <package>@<version> --save-peer --ignore-scripts
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    npm install <package>@<version> --save-peer --ignore-scripts
 
 # Transitive lock-only (Phase 2 走 B-3 時)
-npm update <package> --ignore-scripts
+bash scripts/common/with_tokens.sh <project_path> js -- npm update <package> --ignore-scripts
 ```
 
 #### For yarn (JavaScript path, 含 yarn 3 Berry):
@@ -1969,31 +2008,34 @@ npm update <package> --ignore-scripts
 
 ```bash
 # 直接依賴
-$PKG_MANAGER_BIN up <package>@<range>
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN up <package>@<range>
 
 # 範例 (yarn 3)
-node .yarn/releases/yarn-3.8.2.cjs up axios@^1.6.0
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    node .yarn/releases/yarn-3.8.2.cjs up axios@^1.6.0
 ```
 
 ⚠️ **`yarn up -R <pkg>` 不能接 range** (踩過坑 — yarn 會拒：`Ranges aren't allowed when using --recursive`)。要 recursive 必須分兩步：
 
 ```bash
-$PKG_MANAGER_BIN up <pkg>@<range>
-$PKG_MANAGER_BIN dedupe
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN up <pkg>@<range>
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN dedupe
 ```
 
 **Transitive override（更乾淨的 lock-only 做法）**:
 
 ```bash
-$PKG_MANAGER_BIN set resolution "<pkg>@npm:<old-range>" "npm:<exact-version>"
-$PKG_MANAGER_BIN install --mode update-lockfile
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    $PKG_MANAGER_BIN set resolution "<pkg>@npm:<old-range>" "npm:<exact-version>"
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN install --mode update-lockfile
 ```
 
 對應 manifest 寫法：在 `package.json` 加 `"resolutions": { "<pkg>": "<version>" }`。
 
 **若 preflight 偵測到缺 auth token（IMPROVEMENTS #1）**：依 Phase 0.3.1 的 capability-first
 三層處理（`registry_auth_native` 代表已有原生憑證、直接續走完整 `yarn up`）。仍缺時詢問使用者：
-- 自助 auth（推薦）/ 提供 token → `export <ENV_VAR>=<value>`，續走完整 `yarn up`
+- 自助 auth（推薦）/ 提供 token → 本次 session 尚未存檔時，在 `with_tokens.sh` 前面加
+  `VAR=value` 前綴；已存檔則直接續走完整 `yarn up`
 - 跳過 → 走「手動編輯 yarn.lock + Phase 5.4 validate_lockfile.sh」fallback；Phase 7 報告中註明「Auth fallback: lockfile-only」
 
 詳見 `references/javascript/yarn_workflow.md` 與 `references/common/auth_tokens.md`。
@@ -2005,22 +2047,24 @@ $PKG_MANAGER_BIN install --mode update-lockfile
 
 ```bash
 # 直接依賴 (dependencies)
-$PKG_MANAGER_BIN add <package>@<version>
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN add <package>@<version>
 
 # Dev 依賴 (devDependencies)
-$PKG_MANAGER_BIN add -D <package>@<version>
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN add -D <package>@<version>
 
 # Peer 依賴
-$PKG_MANAGER_BIN add --save-peer <package>@<version>
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    $PKG_MANAGER_BIN add --save-peer <package>@<version>
 
 # Workspace 內升級 (filter 用 workspace name 或 glob)
-$PKG_MANAGER_BIN --filter <workspace-name> add <package>@<version>
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    $PKG_MANAGER_BIN --filter <workspace-name> add <package>@<version>
 
 # Transitive override：先編輯 package.json 加 pnpm.overrides，再：
-$PKG_MANAGER_BIN install --lockfile-only
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN install --lockfile-only
 
 # Transitive lock-only (Phase 2 走 B-3 時)
-$PKG_MANAGER_BIN update <package>
+bash scripts/common/with_tokens.sh <project_path> js -- $PKG_MANAGER_BIN update <package>
 ```
 
 `pnpm add` 與 `npm install --save` 行為對應 — 會同時寫回 `package.json` 與
@@ -2098,59 +2142,62 @@ python scripts/common/parse_pm_errors.py --pkg-manager <npm|yarn|pnpm> \
 
 依 Phase 2 確定的 `upgrade_strategy` 走對應分支：
 
+所有指令都走 `with_tokens.sh`（見 Step 0.3.1）,原因同 Python/JS：私有 Go proxy
+（GOPROXY 指向 JFrog 等）需要同一批 token,而每個 Bash 工具呼叫都是全新的 shell。
+
 **direct_bump**:
 ```bash
-go get <module>@<version>
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- go get <module>@<version>
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 ```
 
 **major_version_rewrite** (gomajor available):
 ```bash
-gomajor get <module>/v<N>@<version>
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- gomajor get <module>/v<N>@<version>
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 ```
 
 **major_version_rewrite** (manual fallback):
 ```bash
 # Step 1: pull new module
-go get <module>/v<N>@<version>
+bash scripts/common/with_tokens.sh <project_path> go -- go get <module>/v<N>@<version>
 
 # Step 2: rewrite all `import "<old-path>"` → `import "<new-path>"`
 # 用 Phase 4 ast_scanner_go.go 的輸出列出每處 import,逐一用 Edit tool 改寫.
 # (永遠不要用 sed 盲改 — string literal 可能誤傷)
 
 # Step 3: 清理舊 entry
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 ```
 
 **bump_parent**:
 ```bash
-go get <parent-module>@<version-or-latest>
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- go get <parent-module>@<version-or-latest>
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 # 然後驗證 target 真的被 bump 到了
-go list -m <target-module>
+bash scripts/common/with_tokens.sh <project_path> go -- go list -m <target-module>
 ```
 
 **bump_indirect**:
 ```bash
-go get <module>@<version>
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- go get <module>@<version>
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 # go.mod 中該 module 的 `// indirect` 註解會保留
 ```
 
 **pin_add / pin_source** (replace, last resort，需使用者確認):
 用 Edit tool 加入 `replace` directive,然後：
 ```bash
-go mod tidy
+bash scripts/common/with_tokens.sh <project_path> go -- go mod tidy
 ```
 
 **通用後續步驟**:
 ```bash
 # 若 vendored — 一定要重建 vendor/
-[ -f vendor/modules.txt ] && go mod vendor
+[ -f vendor/modules.txt ] && bash scripts/common/with_tokens.sh <project_path> go -- go mod vendor
 
 # 驗證 go.sum 一致性
-go mod verify
+bash scripts/common/with_tokens.sh <project_path> go -- go mod verify
 ```
 
 **`go.mod` 不會自動執行任何 install script** — Go 與 npm 不同,沒有 lifecycle scripts
@@ -2170,7 +2217,8 @@ go mod verify
 **Python path** — Phase 5.3 結束後**一律跑**：
 
 ```bash
-bash scripts/python/validate_lockfile.sh <project_path> [--upgrade-strategy <name>]
+bash scripts/common/with_tokens.sh <project_path> python -- \
+    bash scripts/python/validate_lockfile.sh <project_path> [--upgrade-strategy <name>]
 ```
 
 依偵測到的 pkg_manager 跑對應的 lock 一致性檢查：
@@ -2187,7 +2235,8 @@ lock_only`，腳本會額外 `git diff` 檢查 `pyproject.toml` / `requirements.
 或 Phase 2 走 yarn `set resolution` 後手動補 lockfile），完工後**必跑**：
 
 ```bash
-bash scripts/javascript/validate_lockfile.sh <project_path>
+bash scripts/common/with_tokens.sh <project_path> js -- \
+    bash scripts/javascript/validate_lockfile.sh <project_path>
 ```
 
 腳本會選對應的 offline 驗證命令：
@@ -2199,7 +2248,7 @@ bash scripts/javascript/validate_lockfile.sh <project_path>
 **Go path** — Phase 5.3 結束後**一律跑**（不限於走 fallback 路徑）：
 
 ```bash
-bash scripts/go/validate_modfile.sh <project_path>
+bash scripts/common/with_tokens.sh <project_path> go -- bash scripts/go/validate_modfile.sh <project_path>
 ```
 
 腳本順序執行：
