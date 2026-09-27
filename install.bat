@@ -95,8 +95,12 @@ if /i "%MODE%"=="global" (
 echo 安裝位置: !TARGET_DIR!
 
 echo.
-set "REPLY=y"
-if /i not "!ASSUME_YES!"=="true" set /p "REPLY=繼續安裝? (y/N) "
+if /i "!ASSUME_YES!"=="true" (
+    set "REPLY=y"
+) else (
+    set "REPLY=n"
+    set /p "REPLY=繼續安裝? (y/N) "
+)
 if /i not "!REPLY!"=="y" (
     echo 安裝已取消
     endlocal
@@ -115,8 +119,12 @@ if exist "!TARGET_DIR!\" set "NEED_OVERWRITE=1"
 if exist "!FEEDBACK_DIR!\" set "NEED_OVERWRITE=1"
 if defined NEED_OVERWRITE (
     echo %YELLOW%警告: skill 目錄已存在,將會覆蓋%NC%
-    set "REPLY=y"
-    if /i not "!ASSUME_YES!"=="true" set /p "REPLY=確定要覆蓋嗎? (y/N) "
+    if /i "!ASSUME_YES!"=="true" (
+        set "REPLY=y"
+    ) else (
+        set "REPLY=n"
+        set /p "REPLY=確定要覆蓋嗎? (y/N) "
+    )
     if /i not "!REPLY!"=="y" (
         echo 安裝已取消
         endlocal
@@ -175,8 +183,12 @@ if not defined PYTHON_CMD (
 
     if defined MISSING_DEPS (
         echo %YELLOW%缺少依賴:!MISSING_DEPS!%NC%
-        set "REPLY=y"
-        if /i not "!ASSUME_YES!"=="true" set /p "REPLY=是否安裝? (y/N) "
+        if /i "!ASSUME_YES!"=="true" (
+            set "REPLY=y"
+        ) else (
+            set "REPLY=n"
+            set /p "REPLY=是否安裝? (y/N) "
+        )
         if /i "!REPLY!"=="y" (
             !PYTHON_CMD! -m pip install !MISSING_DEPS!
             REM Fall back to --user if the system Python refuses (PEP 668 etc.)

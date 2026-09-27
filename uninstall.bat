@@ -93,8 +93,12 @@ if not "!IS_OURS!"=="true" (
     echo WARNING: !SKILL!: "!DIR!" does not look like the skill we installed -- skipping ^(avoids deleting a same-named skill^).
     goto :eof
 )
-set "REPLY=y"
-if /i not "!ASSUME_YES!"=="true" set /p "REPLY=Remove !SKILL! (!DIR!)? (y/N) "
+if /i "!ASSUME_YES!"=="true" (
+    set "REPLY=y"
+) else (
+    set "REPLY=n"
+    set /p "REPLY=Remove !SKILL! (!DIR!)? (y/N) "
+)
 if /i "!REPLY!"=="y" (
     rmdir /s /q "!DIR!"
     echo + removed !SKILL!
