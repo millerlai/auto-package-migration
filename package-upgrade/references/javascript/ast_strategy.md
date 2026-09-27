@@ -154,3 +154,17 @@ Symbol 命名規則見 `workflow.md` 的對照表 — 與 `scripts/javascript/ap
 - `import type { T } from 'pkg'` 被掃出來，但只用在 type position — Phase 4 應該標為「型別影響」、不算 runtime breaking
 - `require.resolve('pkg')` 表示專案需要拿到 module path，但沒呼叫任何 API — 通常 ignore
 - Side-effect import `import 'pkg/polyfill'` 不取 symbol，但要確認新版是否還有同名 polyfill entry
+
+### Re-export（barrel file）與裸 `require()`
+
+`ast_scanner.js` 也會記錄以下形式，讓 barrel file（只轉出、不直接使用的檔案）不會被漏掉：
+
+- `export * from 'pkg'` → `esm_reexport_all`
+- `export * as ns from 'pkg'` → `esm_reexport_namespace`（帶 `exported`；@babel/parser 把這個語法解析成 `ExportNamedDeclaration` + `ExportNamespaceSpecifier`，不是 `ExportAllDeclaration`）
+- `export { a, default as b } from 'pkg'` → 每個 specifier 各記一筆 `esm_reexport_named`，含 `imported`（來源端名稱）與 `exported`（別名）
+- `export type { T } from 'pkg'`（或整個 re-export 陳述式的 `exportKind === 'type'`）→ `esm_type_only`
+- `require('pkg').y`（member-access init）→ `cjs_member`
+- `module.exports = require('pkg')` → `cjs_reexport`
+- 裸 `require('pkg');`（expression statement 或其他非上述兩種 context）→ `cjs_side_effect`
+
+以上型別一律不建立 local binding（不進入第二輪 usage 追蹤），因為 re-export 或裸 `require()` 呼叫本身不產生可追蹤的區域變數。

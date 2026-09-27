@@ -125,3 +125,107 @@ def test_typescript_file_parsed(node_bin, scripts_dir, js_deps_installed, tmp_pa
 
     assert out["verdict"] == "has_impact"
     assert out["import_count"] >= 2  # default + named
+
+
+def test_export_all_reexport(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.js").write_text("export * from 'axios';\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "esm_reexport_all"
+    assert imp["module"] == "axios"
+
+
+def test_export_all_as_namespace_reexport(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    # @babel/parser parses `export * as ns from 'pkg'` as ExportNamedDeclaration
+    # with an ExportNamespaceSpecifier, not ExportAllDeclaration.
+    (tmp_path / "a.js").write_text("export * as ns from 'axios';\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "esm_reexport_namespace"
+    assert imp["exported"] == "ns"
+
+
+def test_export_named_reexport_with_alias(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.js").write_text("export { a, default as b } from 'axios';\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imports = out["scan_results"][0]["imports"]
+    types = {imp["type"] for imp in imports}
+    assert types == {"esm_reexport_named"}
+    pairs = {(imp["imported"], imp["exported"]) for imp in imports}
+    assert pairs == {("a", "a"), ("default", "b")}
+
+
+def test_export_type_only_reexport(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.ts").write_text("export type { T } from 'axios';\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "esm_type_only"
+
+
+def test_reexport_creates_no_local_binding(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    (tmp_path / "a.js").write_text("export { a } from 'axios';\nconst a = 1;\na;\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    # `a` here is a fresh local binding, not tied to the re-export, so the
+    # usage tracker must not attribute it to axios.
+    assert out["verdict"] == "has_impact"
+    assert out["usage_count"] == 0
+
+
+def test_barrel_only_project_has_impact(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "index.js").write_text("export * from 'axios';\nexport { a } from 'axios';\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    assert out["import_count"] == 2
+
+
+def test_require_member_access_init(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.js").write_text("const get = require('axios').get;\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "cjs_member"
+
+
+def test_require_member_access_usage_tracked(
+    node_bin, scripts_dir, js_deps_installed, tmp_path: Path
+):
+    # const get = require('axios').get; get('/status');
+    # `get` is a real local binding (unlike a re-export), so a later call
+    # through it must be attributed to axios's usage tracking.
+    (tmp_path / "a.js").write_text("const get = require('axios').get;\nget('/status');\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    assert out["usage_count"] == 1
+    assert out["scan_results"][0]["usages"][0]["symbol"] == "axios.get"
+
+
+def test_require_module_exports_reexport(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.js").write_text("module.exports = require('axios');\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "cjs_reexport"
+
+
+def test_require_bare_statement(node_bin, scripts_dir, js_deps_installed, tmp_path: Path):
+    (tmp_path / "a.js").write_text("require('axios');\n")
+    out = _run(node_bin, scripts_dir, tmp_path, "axios")
+
+    assert out["verdict"] == "has_impact"
+    imp = out["scan_results"][0]["imports"][0]
+    assert imp["type"] == "cjs_side_effect"

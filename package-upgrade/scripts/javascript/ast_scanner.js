@@ -40,9 +40,19 @@
  *         import * as ns from 'pkg'            -> esm_namespace
  *         import 'pkg'                         -> esm_side_effect
  *         import type { T } from 'pkg'         -> esm_type_only (flagged)
+ *         export * from 'pkg'                  -> esm_reexport_all
+ *         export * as ns from 'pkg'            -> esm_reexport_namespace (records `exported`)
+ *         export { a, default as b } from 'pkg' -> esm_reexport_named (per specifier)
+ *         export type { T } from 'pkg'         -> esm_type_only (flagged)
  *   CJS:  const X = require('pkg')             -> cjs_default
  *         const { Y } = require('pkg')         -> cjs_destructure
+ *         require('pkg').y                     -> cjs_member
+ *         module.exports = require('pkg')      -> cjs_reexport
+ *         require('pkg');                      -> cjs_side_effect
  *   Dyn:  await import('pkg')                  -> dynamic
+ *
+ * Re-exports (esm_reexport_*) create no local binding, so they are recorded
+ * as import sites only and never fed into usage tracking.
  *
  * Submodule imports ('pkg/foo/bar') are also matched and recorded with the
  * full submodule path so Phase 3 can distinguish "deep import" usage.
@@ -202,6 +212,71 @@ function scanFileInternal(filepath, packageName) {
             }
         },
 
+        // export * from 'pkg' | export * as ns from 'pkg' (no `as ns` alias)
+        // Re-exports create no local binding, so localName/info stay null.
+        ExportAllDeclaration(p) {
+            const node = p.node;
+            const source = node.source.value;
+            if (!isTargetModule(source, packageName)) return;
+            const lineno = node.loc ? node.loc.start.line : 0;
+            const ctx = getContext(sourceLines, lineno);
+            const isTypeOnly = node.exportKind === 'type';
+            const entry = {
+                type: isTypeOnly ? 'esm_type_only' : 'esm_reexport_all',
+                module: source,
+                line: lineno,
+                context: ctx,
+            };
+            if (node.exported) {
+                entry.exported = node.exported.type === 'Identifier'
+                    ? node.exported.name
+                    : node.exported.value;
+            }
+            recordImport(entry, null, null);
+        },
+
+        // export { a, default as b } from 'pkg' | export * as ns from 'pkg'
+        // Only fires when a `source` is present — re-exports, not local exports.
+        ExportNamedDeclaration(p) {
+            const node = p.node;
+            if (!node.source) return;
+            const source = node.source.value;
+            if (!isTargetModule(source, packageName)) return;
+            const lineno = node.loc ? node.loc.start.line : 0;
+            const ctx = getContext(sourceLines, lineno);
+            const isTypeOnly = node.exportKind === 'type';
+
+            for (const spec of node.specifiers) {
+                if (spec.type === 'ExportSpecifier') {
+                    const imported = spec.local.type === 'Identifier'
+                        ? spec.local.name
+                        : spec.local.value;
+                    const exported = spec.exported.type === 'Identifier'
+                        ? spec.exported.name
+                        : spec.exported.value;
+                    recordImport({
+                        type: isTypeOnly ? 'esm_type_only' : 'esm_reexport_named',
+                        module: source,
+                        imported,
+                        exported,
+                        line: lineno,
+                        context: ctx,
+                    }, null, null);
+                } else if (spec.type === 'ExportNamespaceSpecifier') {
+                    const exported = spec.exported.type === 'Identifier'
+                        ? spec.exported.name
+                        : spec.exported.value;
+                    recordImport({
+                        type: isTypeOnly ? 'esm_type_only' : 'esm_reexport_namespace',
+                        module: source,
+                        exported,
+                        line: lineno,
+                        context: ctx,
+                    }, null, null);
+                }
+            }
+        },
+
         // const X = require('pkg') | const { Y } = require('pkg')
         VariableDeclarator(p) {
             const node = p.node;
@@ -272,6 +347,48 @@ function scanFileInternal(filepath, packageName) {
                     });
                     hasMatch = true;
                 }
+            }
+            // require('pkg') wherever it appears as a call, other than
+            // directly as a VariableDeclarator init — that form is already
+            // handled by the VariableDeclarator visitor above.
+            if (node.callee.type === 'Identifier' && node.callee.name === 'require') {
+                const parent = p.parent;
+                if (parent.type === 'VariableDeclarator' && parent.init === node) return;
+                const arg = node.arguments[0];
+                if (!arg || arg.type !== 'StringLiteral') return;
+                if (!isTargetModule(arg.value, packageName)) return;
+                const lineno = node.loc ? node.loc.start.line : 0;
+                const ctx = getContext(sourceLines, lineno);
+                let type;
+                let localName = null;
+                let info = null;
+                if (parent.type === 'MemberExpression' && parent.object === node) {
+                    type = 'cjs_member';
+                    // const NAME = require('pkg').member — a real local
+                    // binding, unlike a re-export, so track its later usage.
+                    const grandparent = p.parentPath.parent;
+                    if (grandparent.type === 'VariableDeclarator' &&
+                        grandparent.init === parent &&
+                        grandparent.id.type === 'Identifier') {
+                        const propName = parent.computed
+                            ? (parent.property.type === 'StringLiteral' ? parent.property.value : null)
+                            : parent.property.name;
+                        if (propName) {
+                            localName = grandparent.id.name;
+                            info = { sourceModule: arg.value, originalSymbol: propName, importType: 'cjs_member' };
+                        }
+                    }
+                } else if (parent.type === 'AssignmentExpression' && parent.right === node) {
+                    type = 'cjs_reexport';
+                } else {
+                    type = 'cjs_side_effect';
+                }
+                recordImport({
+                    type,
+                    module: arg.value,
+                    line: lineno,
+                    context: ctx,
+                }, localName, info);
             }
         },
     });
