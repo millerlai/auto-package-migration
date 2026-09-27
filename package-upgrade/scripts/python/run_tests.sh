@@ -62,11 +62,17 @@ if [[ "$TEST_RUNNER" =~ pytest ]]; then
         $TEST_RUNNER -v > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
     fi
 
-    # Parse pytest output
-    PASSED=$(grep -c "PASSED" "$OUTPUT_FILE" || echo "0")
-    FAILED=$(grep -c "FAILED" "$OUTPUT_FILE" || echo "0")
-    ERRORS=$(grep -c "ERROR" "$OUTPUT_FILE" || echo "0")
-
+    # Parse pytest's final summary line (e.g. "2 passed in 0.01s" or
+    # "1 failed, 1 passed in 0.02s" or "1 error in 0.00s"), not log lines:
+    # grepping PASSED/FAILED/ERROR counts log lines, not tests, and ERROR
+    # also matches inside tracebacks.
+    SUMMARY_LINE=$(grep -E "^=+ .* =+$" "$OUTPUT_FILE" | tail -1 || true)
+    PASSED=$(grep -oE "[0-9]+ passed" <<<"$SUMMARY_LINE" | grep -oE "[0-9]+" || true)
+    FAILED=$(grep -oE "[0-9]+ failed" <<<"$SUMMARY_LINE" | grep -oE "[0-9]+" || true)
+    ERRORS=$(grep -oE "[0-9]+ error(s)?" <<<"$SUMMARY_LINE" | grep -oE "[0-9]+" || true)
+    PASSED="${PASSED:-0}"
+    FAILED="${FAILED:-0}"
+    ERRORS="${ERRORS:-0}"
 else
     # Run unittest
     if [ "$MODE" = "files" ]; then
@@ -75,29 +81,43 @@ else
         $TEST_RUNNER discover -v > "$OUTPUT_FILE" 2>&1 || EXIT_CODE=$?
     fi
 
-    # Parse unittest output
-    PASSED=$(grep -c "ok" "$OUTPUT_FILE" || echo "0")
-    FAILED=$(grep -c "FAIL" "$OUTPUT_FILE" || echo "0")
-    ERRORS=$(grep -c "ERROR" "$OUTPUT_FILE" || echo "0")
+    # Parse the "Ran N tests" line and the "OK" / "FAILED (failures=X,
+    # errors=Y)" line, not log lines: grep -c "ok" matches any line
+    # containing "ok" (e.g. "token"), and unittest has no per-test PASSED
+    # marker to count directly. "failures=" is anchored to "(failures="
+    # so it doesn't match inside "(expected failures=N)", which unittest
+    # prints on a fully green run (exit code 0); "errors=" needs no such
+    # anchor since unittest never prints an "expected errors=" variant.
+    # skipped= is parsed and subtracted so a skipped test isn't counted
+    # as passed.
+    TOTAL=$(grep -oE "^Ran [0-9]+ test" "$OUTPUT_FILE" | tail -1 | grep -oE "[0-9]+" || true)
+    FAILED=$(grep -oE "\(failures=[0-9]+" "$OUTPUT_FILE" | tail -1 | grep -oE "[0-9]+" || true)
+    ERRORS=$(grep -oE "errors=[0-9]+" "$OUTPUT_FILE" | tail -1 | grep -oE "[0-9]+" || true)
+    SKIPPED=$(grep -oE "skipped=[0-9]+" "$OUTPUT_FILE" | tail -1 | grep -oE "[0-9]+" || true)
+    TOTAL="${TOTAL:-0}"
+    FAILED="${FAILED:-0}"
+    ERRORS="${ERRORS:-0}"
+    SKIPPED="${SKIPPED:-0}"
+    PASSED=$((TOTAL - FAILED - ERRORS - SKIPPED))
 fi
 
-# Extract traceback if there are failures
-TRACEBACK=""
+# Extract traceback if there are failures. Passed via --rawfile (not
+# --arg) so a large traceback never hits the command-line length limit.
+TRACEBACK_FILE=$(mktemp)
 if [ $EXIT_CODE -ne 0 ]; then
-    TRACEBACK=$(cat "$OUTPUT_FILE")
+    cp "$OUTPUT_FILE" "$TRACEBACK_FILE"
 fi
 
-# Output JSON
-cat <<EOF
-{
-  "passed": $PASSED,
-  "failed": $FAILED,
-  "errors": $ERRORS,
-  "exit_code": $EXIT_CODE,
-  "test_runner": "$TEST_RUNNER",
-  "traceback": $(echo "$TRACEBACK" | jq -Rs .)
-}
-EOF
+# Output JSON. Built with jq -n --argjson (not a heredoc) so a malformed
+# value fails loudly instead of producing broken JSON.
+jq -n \
+    --argjson passed "$PASSED" \
+    --argjson failed "$FAILED" \
+    --argjson errors "$ERRORS" \
+    --argjson exit_code "$EXIT_CODE" \
+    --arg test_runner "$TEST_RUNNER" \
+    --rawfile traceback "$TRACEBACK_FILE" \
+    '{passed: $passed, failed: $failed, errors: $errors, exit_code: $exit_code, test_runner: $test_runner, traceback: $traceback}'
 
-rm -f "$OUTPUT_FILE"
+rm -f "$OUTPUT_FILE" "$TRACEBACK_FILE"
 exit $EXIT_CODE
