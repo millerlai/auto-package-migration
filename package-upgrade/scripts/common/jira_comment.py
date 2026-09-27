@@ -98,6 +98,7 @@ def post_comment(site: str, key: str, body_md: str, email: str, token: str) -> d
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     if len(sys.argv) != 4:
         print(f"Usage: {sys.argv[0]} <site_host> <issue_key> <comment_file_or_->", file=sys.stderr)
         return 2

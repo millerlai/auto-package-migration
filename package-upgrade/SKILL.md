@@ -1369,8 +1369,15 @@ Git Diff + Changelog 雙軌做判斷。
 ### Step 3.1: Changelog 分析
 
 ```bash
-python scripts/common/fetch_changelog.py <package_name> <git_repo_url>
+python scripts/common/fetch_changelog.py <package_name> <git_repo_url> <old_version> <new_version> --ecosystem <pypi|npm|go>
 ```
+
+`--ecosystem` 依目前偵測到的語言帶入（Python→`pypi`、JS/TS→`npm`、Go→`go`）；
+只有 `pypi` 會嘗試步驟 1 的 PyPI metadata（且需通過 repo-identity 檢查），其餘
+生態系統直接跳到 GitHub Releases。帶入 `old_version`/`new_version` 後，GitHub
+Releases 步驟只保留 `(old_version, new_version]` 區間內的版本；若輸出含
+`<!-- changelog_coverage: partial -->`，代表分頁在抵達 `old_version` 之前就停止
+了（達 10 頁上限或中途出錯），涵蓋範圍不完整，不能當作「已看過全部變更」處理。
 
 script 會嘗試以下來源並輸出原文:
 - PyPI metadata 中的 changelog URL

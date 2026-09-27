@@ -118,6 +118,7 @@ def apply_transition(site: str, key: str, transition_id: str, resolution: str | 
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     if len(sys.argv) < 4:
         print("Usage:", file=sys.stderr)
         print(f"  {sys.argv[0]} list <site_host> <issue_key>", file=sys.stderr)

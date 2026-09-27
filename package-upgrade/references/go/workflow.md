@@ -52,7 +52,7 @@ Go 跟 Python / JavaScript 有幾個結構性差異，這些差異直接影響�
 | 0.3 Pre-flight | `scripts/go/preflight.sh` | 多檢查 `go` 在 PATH、私有 module 認證 `.netrc`、govulncheck 可用 |
 | 1 輸入解析 | 共用 | CVE 場景**多一條 govulncheck path**：先跑掃描判斷可達性 |
 | 2 依賴分析 | `scripts/go/dep_tree.sh` | 多一個 `major_version_rewrite` strategy；無 lock-only strategy |
-| 3 Breaking change | `scripts/go/api_surface_diff.sh` + `scripts/go/git_diff.sh` + `scripts/common/fetch_changelog.py` | **三軌**：`apidiff` 取代 `.d.ts` diff；Git diff 過濾 `*.go` 排除 `_test.go` / `vendor/` |
+| 3 Breaking change | `scripts/go/api_surface_diff.sh` + `scripts/go/git_diff.sh` + `scripts/common/fetch_changelog.py --ecosystem go` | **三軌**：`apidiff` 取代 `.d.ts` diff；Git diff 過濾 `*.go` 排除 `_test.go` / `vendor/` |
 | 4 程式碼影響 | `scripts/go/ast_scanner.go` (`go run`) | 使用 `go/parser` + `go/ast`；symbol 命名規則見下 |
 | 5 執行升級 | `go get` + 可能的 `gomajor` + `go mod tidy` + `go mod vendor`（若 vendor mode） | 與 JS 不同：沒有 lifecycle script 隱憂；major version 要 path rewrite |
 | 6 測試 | `scripts/go/run_tests.sh` | `go test ./...`、`-race`、`-count=1` 防 cache |

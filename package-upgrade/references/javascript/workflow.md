@@ -23,7 +23,7 @@ JS path **必讀** `ast_strategy.md` 與 `breaking_change_patterns.md`（同資�
 | 0 環境偵測 | `scripts/javascript/detect_env.sh` | 輸出含 `language`, `pkg_manager`, `has_typescript`, `is_workspace`, `test_framework_hint` |
 | 1 輸入解析 | （無 JS 專屬） | Jira / CVE 流程完全沿用 |
 | 2 依賴分析 | `scripts/javascript/dep_tree.js` | 多一個 `is_peer` flag 與 `peer` dependency_type |
-| 3 Breaking change | `scripts/javascript/api_surface_diff.js` + `scripts/javascript/git_diff.sh` + `scripts/common/fetch_changelog.py` | **三軌**：`.d.ts` API surface diff (新增) + Git diff 過濾 `*.{js,ts,jsx,tsx,d.ts}` + Changelog |
+| 3 Breaking change | `scripts/javascript/api_surface_diff.js` + `scripts/javascript/git_diff.sh` + `scripts/common/fetch_changelog.py --ecosystem npm` | **三軌**：`.d.ts` API surface diff (新增) + Git diff 過濾 `*.{js,ts,jsx,tsx,d.ts}` + Changelog |
 | 4 程式碼影響 | `scripts/javascript/ast_scanner.js` | 使用 `@babel/parser` + `@babel/traverse`；symbol 命名規則見下方 |
 | 5 執行升級 | `npm install <pkg>@<ver>` / `npm install <pkg>@<ver> --save-peer` | `npm install` 會自動寫回 `package.json` 與 `package-lock.json` — 與 pip 不同；**預設加 `--ignore-scripts`** |
 | 0.5 Runtime baseline (optional) | `scripts/javascript/runtime_verify.js --mode baseline` | **JS 專屬**；偵測 web app → 升前抓 dev server boot + HTTP probe + (T2) console errors，作為 Step 6.6 的對照組。詳見 `runtime_verification.md`。 |

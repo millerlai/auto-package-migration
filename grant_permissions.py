@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -115,11 +116,13 @@ GH_ALLOW = {
 SCRIPT_ALLOW_BY_MODE = {
     "global": [
         "Bash(bash ~/.claude/skills/package-upgrade/scripts/*:*)",
+        "Bash(python ~/.claude/skills/package-upgrade/scripts/*:*)",
         "Bash(python3 ~/.claude/skills/package-upgrade/scripts/*:*)",
         "Bash(node ~/.claude/skills/package-upgrade/scripts/*:*)",
     ],
     "project": [
         "Bash(bash .claude/skills/package-upgrade/scripts/*:*)",
+        "Bash(python .claude/skills/package-upgrade/scripts/*:*)",
         "Bash(python3 .claude/skills/package-upgrade/scripts/*:*)",
         "Bash(node .claude/skills/package-upgrade/scripts/*:*)",
     ],
@@ -136,26 +139,44 @@ HOOK_SCRIPT_BY_MODE = {
 
 
 def build_stop_hook(mode: str) -> dict:
-    """Build the settings.json Stop-hook group for the given install mode."""
+    """Build the settings.json Stop-hook group for the given install mode.
+
+    Uses `python` on Windows and `python3` elsewhere (D8) — matching how
+    SKILL.md itself invokes helpers — rather than the absolute
+    `sys.executable`, which would pin the hook to whichever interpreter ran
+    the installer (possibly a throwaway venv).
+    """
     path = Path(HOOK_SCRIPT_BY_MODE[mode]).expanduser()
     # project mode stays relative (hooks run from the project root); global
     # mode resolves ~ so the absolute path is stable regardless of cwd.
     path_str = str(path) if mode == "global" else HOOK_SCRIPT_BY_MODE[mode]
+    interpreter = "python" if os.name == "nt" else "python3"
     return {
         "matcher": "",
-        "hooks": [{"type": "command", "command": f'python3 "{path_str}"'}],
+        "hooks": [{"type": "command", "command": f'{interpreter} "{path_str}"'}],
     }
 
 
 def merge_stop_hook(settings: dict, mode: str) -> bool:
-    """Add the provenance Stop hook if absent. Returns True if it was added."""
+    """Add the provenance Stop hook if absent, or fix its command if it drifted.
+
+    Idempotent by marker: a hook whose command already matches is left alone.
+    A marker-matched hook whose command differs (e.g. an old `python3` hook
+    on a machine that now wants `python`) is replaced in place rather than
+    duplicated. Returns True if the hook was added or replaced.
+    """
+    desired = build_stop_hook(mode)
+    desired_command = desired["hooks"][0]["command"]
     hooks = settings.setdefault("hooks", {})
     stop_groups = hooks.setdefault("Stop", [])
     for group in stop_groups:
         for entry in group.get("hooks", []):
             if HOOK_MARKER in entry.get("command", ""):
-                return False
-    stop_groups.append(build_stop_hook(mode))
+                if entry["command"] == desired_command:
+                    return False
+                entry["command"] = desired_command
+                return True
+    stop_groups.append(desired)
     return True
 
 
@@ -220,9 +241,9 @@ def load_settings(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        data: dict = json.loads(path.read_text())
+        data: dict = json.loads(path.read_text(encoding="utf-8"))
         return data
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         sys.stderr.write(f"error: {path} is not valid JSON: {exc}\n")
         sys.exit(2)
 
@@ -280,7 +301,7 @@ def main() -> int:
         if args.dry_run:
             print("\n--dry-run: settings file not modified.")
             return 0
-        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
         print(f"\nUpdated {settings_path}")
         return 0
 
@@ -320,7 +341,7 @@ def main() -> int:
         return 0
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     print(f"\nUpdated {settings_path}")
     return 0
 

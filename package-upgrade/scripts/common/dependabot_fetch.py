@@ -389,6 +389,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     args = build_arg_parser().parse_args(argv)
     ecosystem_filter = parse_ecosystems(args.ecosystem)
 
